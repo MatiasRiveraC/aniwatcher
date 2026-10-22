@@ -1,0 +1,5 @@
+flask>=3.0
+feedparser>=6.0
+requests>=2.31
+deluge-client>=1.10
+flask-sock>=0.7

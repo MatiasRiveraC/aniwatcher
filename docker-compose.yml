@@ -1,0 +1,23 @@
+services:
+  aniwatcher:
+    build: .
+    container_name: aniwatcher
+    restart: unless-stopped
+    user: "568:568"
+    ports:
+      - "${WEB_PORT:-5000}:5000"
+    env_file: .env
+    volumes:
+      - aniwatcher_data:/data
+      - type: bind
+        source: ${ANIME_BASE}
+        target: ${ANIME_BASE}
+        bind:
+          propagation: shared
+      - type: bind
+        source: ${TORRENT_DONE}
+        target: ${TORRENT_DONE}
+        bind:
+          propagation: shared
+volumes:
+  aniwatcher_data:

@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AniWatcher</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%237c3aed'/%3E%3Cellipse cx='16' cy='16' rx='10' ry='6' fill='none' stroke='%23fff' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%23e5195e'/%3E%3Ccircle cx='16' cy='16' r='1.5' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Noto+Sans+JP:wght@300;400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+
+<header>
+  <div class="logo">AniWatcher<span>NYAA AUTO-DOWNLOADER</span></div>
+  <div class="header-stats" id="headerStats"></div>
+  <div class="header-right">
+    <button class="alert-btn" onclick="openCompletedModal()" title="View files in torrents/completed">!</button>
+    <button class="bell-btn" onclick="toggleNotifs()" id="bellBtn" title="Notifications">
+      🔔<span class="bell-badge" id="bellBadge" style="display:none">0</span>
+    </button>
+    <button id="pollBtn" onclick="manualPoll()">⟳ Poll Now</button>
+  </div>
+</header>
+
+<!-- Notifications panel -->
+<div class="notif-panel" id="notifPanel">
+  <div class="notif-header">
+    Notifications
+    <button class="notif-clear" onclick="markRead()">Mark all read</button>
+  </div>
+  <div class="notif-list" id="notifList"></div>
+</div>
+
+<main>
+  <div class="add-section">
+    <h2>Add Anime to Watchlist</h2>
+    <div class="add-row">
+      <input type="text" id="titleInput" placeholder="Folder name (e.g. Fumetsu no Anata)"
+             autocomplete="off" oninput="onTitleInput()" onkeydown="if(event.key==='Enter') addAnime()"/>
+      <input type="text" id="searchTitleInput" placeholder="Nyaa search (optional)" autocomplete="off" style="flex:1;min-width:180px"/>
+      <select id="seasonInput" onchange="onSeasonChange()">
+        <option value="1">Season 1</option><option value="2">Season 2</option>
+        <option value="3">Season 3</option><option value="4">Season 4</option>
+        <option value="5">Season 5</option><option value="6">Season 6</option>
+        <option value="7">Season 7</option><option value="8">Season 8</option>
+        <option value="9">Season 9</option><option value="10">Season 10</option>
+        <option value="custom">Custom…</option>
+      </select>
+      <input type="number" id="seasonCustom" min="1" max="99" placeholder="Season #" style="display:none"/>
+      <input type="number" id="startEpInput" min="1" placeholder="Start from ep#" style="width:130px"
+             title="Only download episodes from this number onwards (e.g. 1000 for One Piece)"/>
+      <div class="mode-toggle">
+        <button id="modeOngoing" class="active" onclick="setMode('ongoing')">⟳ Ongoing</button>
+        <button id="modeComplete" onclick="setMode('complete')">⬇ Full Season</button>
+      </div>
+      <button class="btn-add" onclick="addAnime()">+ Add</button>
+    </div>
+    <div id="searchResults"></div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('watchlist')">Watchlist</button>
+    <button class="tab-btn" onclick="switchTab('logs')">Logs</button>
+    <button class="tab-btn" onclick="switchTab('downloads')">Downloads</button>
+    <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
+  </div>
+
+  <div class="tab-panel active" id="tab-watchlist">
+    <div class="section-header">
+      <h2>Watchlist</h2>
+      <span class="count-badge" id="countBadge">0 series</span>
+    </div>
+    <div class="watchlist" id="watchlist"></div>
+  </div>
+
+  <div class="tab-panel" id="tab-downloads">
+    <div class="log-controls">
+      <input type="text" id="dlSearch" placeholder="Filter by URL or title…"
+             oninput="filterDownloads()"
+             style="flex:1;background:var(--card);border:1px solid var(--border);color:var(--text);padding:.5rem 1rem;border-radius:8px;font-size:.85rem;outline:none"/>
+      <button class="btn-icon" onclick="deleteSelected()" style="color:var(--accent);border-color:var(--accent)">🗑 Delete selected</button>
+      <button class="btn-icon" onclick="enrichTitles()" id="enrichBtn" style="font-size:.75rem;height:28px">⟳ Fetch titles</button>
+      <span id="dlCount" style="font-size:.8rem;color:var(--muted)"></span>
+    </div>
+    <div style="margin-bottom:.5rem;font-size:.8rem;color:var(--muted)">
+      <label style="cursor:pointer"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"> Select all visible</label>
+    </div>
+    <div class="enrich-progress" id="enrichProgress">
+      <div class="progress-label" style="display:flex;justify-content:space-between">
+        <span id="enrichLabel">Fetching titles…</span>
+        <span id="enrichPct">0%</span>
+      </div>
+      <div class="progress-track"><div class="progress-fill" id="enrichBar" style="width:0%"></div></div>
+      <div id="enrichCurrent" style="font-size:.75rem;color:var(--muted);margin-top:.25rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+    </div>
+    <div id="dlList" style="max-height:500px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;background:var(--card)"></div>
+  </div>
+
+  <div class="tab-panel" id="tab-settings">
+    <form id="settingsForm" onsubmit="saveSettings(event)">
+
+      <div class="settings-section">
+        <h3 class="settings-section-title">Download Preferences</h3>
+        <div class="settings-grid">
+          <div class="settings-field">
+            <label for="s_preferred_resolution">Preferred Resolution</label>
+            <select id="s_preferred_resolution" name="preferred_resolution">
+              <option value="1080">1080p only</option>
+              <option value="720">720p or better</option>
+              <option value="any">Any resolution</option>
+            </select>
+            <span class="settings-hint">Only download torrents matching this resolution.</span>
+          </div>
+          <div class="settings-field">
+            <label for="s_preferred_groups">Preferred Release Groups</label>
+            <input type="text" id="s_preferred_groups" name="preferred_groups" placeholder="SubsPlease,Erai-raws,NC-Raws,EMBER"/>
+            <span class="settings-hint">Comma-separated. These groups get priority in sorting.</span>
+          </div>
+          <div class="settings-field">
+            <label class="settings-toggle-label">
+              <input type="checkbox" id="s_auto_clean_metadata" name="auto_clean_metadata" value="true" class="settings-checkbox"/>
+              Auto-clean MKV metadata after rename
+            </label>
+            <span class="settings-hint">Strips the embedded title tag from MKV files so Jellyfin shows proper episode names instead of the release group name (e.g. "ToonsHub").</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3 class="settings-section-title">Timing</h3>
+        <div class="settings-grid">
+          <div class="settings-field">
+            <label for="s_poll_interval">Poll Interval (seconds)</label>
+            <input type="number" id="s_poll_interval" name="poll_interval" min="60" max="86400"/>
+            <span class="settings-hint">How often to check Nyaa for new episodes.</span>
+          </div>
+          <div class="settings-field">
+            <label for="s_watch_interval">Watch Interval (seconds)</label>
+            <input type="number" id="s_watch_interval" name="watch_interval" min="10" max="3600"/>
+            <span class="settings-hint">How often to scan the completed folder for renames.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3 class="settings-section-title">Paths</h3>
+        <div class="settings-grid settings-grid-full">
+          <div class="settings-field">
+            <label for="s_anime_base">Anime Library Path</label>
+            <input type="text" id="s_anime_base" name="anime_base" placeholder="/media/anime"/>
+            <span class="settings-hint">Root folder where renamed episodes are moved.</span>
+          </div>
+          <div class="settings-field">
+            <label for="s_torrent_done">Torrent Completed Path</label>
+            <input type="text" id="s_torrent_done" name="torrent_done" placeholder="/downloads/completed"/>
+            <span class="settings-hint">Deluge's completed downloads folder.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3 class="settings-section-title">Deluge Connection</h3>
+        <div class="settings-grid">
+          <div class="settings-field">
+            <label for="s_deluge_host">Host</label>
+            <input type="text" id="s_deluge_host" name="deluge_host" placeholder="localhost"/>
+          </div>
+          <div class="settings-field">
+            <label for="s_deluge_port">Port</label>
+            <input type="number" id="s_deluge_port" name="deluge_port" min="1" max="65535"/>
+          </div>
+          <div class="settings-field">
+            <label for="s_deluge_user">Username</label>
+            <input type="text" id="s_deluge_user" name="deluge_user" placeholder="localclient"/>
+          </div>
+          <div class="settings-field">
+            <label for="s_deluge_pass">Password</label>
+            <input type="password" id="s_deluge_pass" name="deluge_pass" placeholder="(leave blank if none)"/>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3 class="settings-section-title">MyAnimeList</h3>
+        <div class="settings-grid settings-grid-full">
+          <div class="settings-field">
+            <label for="s_mal_client_id">Client ID</label>
+            <input type="text" id="s_mal_client_id" name="mal_client_id" placeholder="MAL API client ID"/>
+          </div>
+        </div>
+      </div>
+
+      <!-- Library tree browser -->
+      <div class="settings-section">
+        <h3 class="settings-section-title">Library Browser</h3>
+        <div class="lib-browser">
+          <div class="lib-tree-panel">
+            <div class="lib-tree-toolbar">
+              <span id="libTreeRoot" class="lib-tree-root-label"></span>
+              <button class="lib-refresh-btn" onclick="initLibraryTree()" title="Refresh">⟳</button>
+            </div>
+            <div class="lib-tree" id="libTree">
+              <div style="color:var(--muted);font-size:.82rem;padding:.75rem">Open the Settings tab to load…</div>
+            </div>
+          </div>
+          <div class="lib-detail-panel" id="libDetail">
+            <div class="lib-detail-empty">Select an MKV file to inspect its metadata</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bulk metadata clean -->
+      <div class="settings-section">
+        <h3 class="settings-section-title">Tools</h3>
+        <div class="settings-tool-row">
+          <div>
+            <div class="settings-tool-title">Clean Library Metadata</div>
+            <div class="settings-hint">Scans every MKV in your anime library and strips the embedded title tag. Fixes episodes showing as "ToonsHub", "SubsPlease", etc. in Jellyfin. Runs in the background — no re-encode.</div>
+          </div>
+          <button type="button" class="btn-settings-tool" id="cleanMetaBtn" onclick="runCleanMetadata()">
+            🧹 Clean Now
+          </button>
+        </div>
+        <div id="cleanMetaResult" class="settings-tool-result" style="display:none"></div>
+      </div>
+
+      <div class="settings-actions">
+        <button type="button" class="btn-settings-reset" onclick="resetSettings()">Reset to defaults</button>
+        <button type="submit" class="btn-settings-save" id="settingsSaveBtn">Save Changes</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="tab-panel" id="tab-logs">
+    <div class="log-controls">
+      <label><input type="checkbox" id="autoScroll" checked> Auto-scroll</label>
+      <button onclick="clearLogs()" class="btn-icon" style="height:28px;font-size:.75rem">Clear</button>
+      <span id="logStatus" style="font-size:.75rem;color:var(--muted)">Connecting…</span>
+    </div>
+    <div class="log-viewer" id="logViewer"></div>
+  </div>
+</main>
+
+<!-- Manual torrent picker modal -->
+<div class="pick-overlay" id="pickOverlay" onclick="if(event.target===this)closePicker()">
+  <div class="pick-modal">
+    <div class="pick-header">
+      <div>
+        <div class="pick-title">Choose Torrent</div>
+        <div class="pick-subtitle" id="pickSubtitle"></div>
+      </div>
+      <button class="pick-close" onclick="closePicker()">✕</button>
+    </div>
+    <div class="pick-body" id="pickBody">
+      <div style="text-align:center;padding:2rem;color:var(--muted)">Searching nyaa…</div>
+    </div>
+  </div>
+</div>
+
+<!-- Metadata inspector modal -->
+<div class="modal-overlay" id="metaModal" onclick="if(event.target===this)closeMetaModal()">
+  <div class="modal" style="width:min(860px,96vw)">
+    <div class="modal-header">
+      🔍 MKV Metadata Inspector
+      <span id="metaModalPath" style="font-size:.75rem;color:var(--muted);margin-left:.5rem"></span>
+      <button class="modal-close" onclick="closeMetaModal()">✕</button>
+    </div>
+    <div class="modal-body" id="metaModalBody">
+      <div class="modal-empty">Loading…</div>
+    </div>
+  </div>
+</div>
+
+<!-- Completed files modal -->
+<div class="modal-overlay" id="completedModal" onclick="if(event.target===this)closeCompletedModal()">
+  <div class="modal">
+    <div class="modal-header">
+      📂 Torrents / Completed
+      <span id="completedPath"></span>
+      <button class="modal-close" onclick="closeCompletedModal()">✕</button>
+    </div>
+    <div class="modal-body" id="completedBody">
+      <div class="modal-empty">Loading…</div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- JS modules (order matters: ui → api → feature files) -->
+<script src="/static/js/ui.js"></script>
+<script src="/static/js/api.js"></script>
+<script src="/static/js/search.js"></script>
+<script src="/static/js/notifications.js"></script>
+<script src="/static/js/watchlist.js"></script>
+<script src="/static/js/downloads.js"></script>
+<script src="/static/js/modals.js"></script>
+<script src="/static/js/logs.js"></script>
+<script src="/static/js/settings.js"></script>
+<script src="/static/js/meta-inspector.js"></script>
+<script src="/static/js/library-browser.js"></script>
+<script>
+  // Initialise
+  loadWatchlist();
+  loadStatus();
+  setInterval(() => { loadWatchlist(); loadStatus(); }, 30000);
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.add-section')) hideSearch();
+    if (!e.target.closest('.notif-panel') && !e.target.closest('.bell-btn'))
+      document.getElementById('notifPanel').classList.remove('open');
+  });
+</script>
+</body>
+</html>

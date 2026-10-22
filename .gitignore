@@ -1,0 +1,28 @@
+# Secrets / local config
+.env
+.env.*
+!.env.example
+
+# Local backups & archives
+*.zip
+*.bak
+
+# Runtime data
+data/
+watchlist.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Editor / tooling
+.claude/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
