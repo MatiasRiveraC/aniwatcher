@@ -1,17 +1,43 @@
 // ── Settings tab ──────────────────────────────────────────────────────────────
 
+function showClientFields(client) {
+  document.querySelectorAll('.qbit-only').forEach(el => {
+    el.style.display = client === 'qbittorrent' ? '' : 'none';
+  });
+  document.querySelectorAll('.deluge-only').forEach(el => {
+    el.style.display = client === 'qbittorrent' ? 'none' : '';
+  });
+}
+
 function populateSettings(s) {
   const fields = [
     'preferred_resolution', 'preferred_groups',
     'poll_interval', 'watch_interval',
-    'anime_base', 'torrent_done',
+    'anime_base', 'torrent_done', 'torrent_incoming',
+    'torrent_client',
     'deluge_host', 'deluge_port', 'deluge_user', 'deluge_pass',
+    'qbit_url', 'qbit_user', 'qbit_pass', 'qbit_category',
     'mal_client_id',
   ];
   for (const key of fields) {
     const el = document.getElementById('s_' + key);
     if (el && s[key] !== undefined) el.value = s[key];
   }
+  // Passwords never come back from the server; say whether one is saved.
+  for (const key of ['deluge_pass', 'qbit_pass']) {
+    const el = document.getElementById('s_' + key);
+    if (el) el.placeholder = (s._secrets_set || []).includes(key)
+      ? '(saved — leave blank to keep)' : '(not set)';
+  }
+  // Folders fixed by the server are shown but not editable.
+  const locked = s._locked || [];
+  for (const key of ['anime_base', 'torrent_done', 'torrent_incoming']) {
+    const el = document.getElementById('s_' + key);
+    if (el) el.readOnly = locked.includes(key);
+  }
+  const hint = document.getElementById('lockedPathsHint');
+  if (hint) hint.style.display = locked.length ? '' : 'none';
+  showClientFields(s.torrent_client || 'deluge');
   // Checkboxes
   const chk = document.getElementById('s_auto_clean_metadata');
   if (chk) chk.checked = s['auto_clean_metadata'] !== false;

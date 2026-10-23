@@ -2,7 +2,8 @@ import os
 
 from flask import Blueprint, jsonify, request
 
-from data import get_settings, save_settings, DEFAULT_SETTINGS
+from data import get_settings, save_settings, DEFAULT_SETTINGS, SECRET_KEYS, locked_keys
+from services.library import inside
 from services.metadata import inspect_file, strip_mkv_title
 
 bp = Blueprint("settings", __name__)
@@ -10,16 +11,20 @@ bp = Blueprint("settings", __name__)
 
 def _safe_path(path: str) -> str | None:
     """Return realpath if it's inside anime_base, else None."""
-    anime_base = os.path.realpath(get_settings().get("anime_base", ""))
-    real = os.path.realpath(path)
-    if real.startswith(anime_base):
-        return real
-    return None
+    return inside(path, get_settings().get("anime_base", ""))
+
+
+def _public(settings: dict) -> dict:
+    """Settings as the browser may see them: passwords blanked, locks listed."""
+    out = {k: ("" if k in SECRET_KEYS else v) for k, v in settings.items()}
+    out["_secrets_set"] = [k for k in SECRET_KEYS if settings.get(k)]
+    out["_locked"] = list(locked_keys())
+    return out
 
 
 @bp.route("/api/settings", methods=["GET"])
 def get_settings_route():
-    return jsonify(get_settings())
+    return jsonify(_public(get_settings()))
 
 
 @bp.route("/api/settings", methods=["POST"])
@@ -31,6 +36,11 @@ def save_settings_route():
     for key, default in DEFAULT_SETTINGS.items():
         if key in body:
             val = body[key]
+            # A blank password field means "unchanged": the form never sees it.
+            if key in SECRET_KEYS and val in ("", None):
+                continue
+            if key in locked_keys():
+                continue
             try:
                 if isinstance(default, bool):
                     # Accept bool, "true"/"false" strings, 0/1
@@ -51,7 +61,7 @@ def save_settings_route():
             current[key] = val
 
     save_settings(current)
-    return jsonify({"ok": True, "settings": current})
+    return jsonify({"ok": True, "settings": _public(current)})
 
 
 @bp.route("/api/browse-library", methods=["GET"])
