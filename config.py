@@ -13,13 +13,18 @@ DELUGE_USER    = os.getenv("DELUGE_USER", "localclient")
 DELUGE_PASS    = os.getenv("DELUGE_PASS", "")
 
 # qBittorrent Web UI. Torrents are added under QBIT_CATEGORY and saved to
-# TORRENT_INCOMING; once finished, AniWatcher removes them from qBittorrent
-# (keeping the files) and moves them into TORRENT_DONE, where the renamer
-# picks them up — the same hand-off Deluge's "move completed" gives.
-QBIT_URL       = os.getenv("QBIT_URL", "http://localhost:8080")
-QBIT_USER      = os.getenv("QBIT_USER", "admin")
-QBIT_PASS      = os.getenv("QBIT_PASS", "")
-QBIT_CATEGORY  = os.getenv("QBIT_CATEGORY", "aniwatcher")
+# TORRENT_INCOMING; once finished, their files are handed to TORRENT_DONE,
+# where the renamer picks them up — the hand-off Deluge's "move completed"
+# gives. How depends on QBIT_STOP_SEEDING:
+#   false (default) – the torrent keeps seeding; its files are hard-linked
+#                     into TORRENT_DONE (copied if that is not possible).
+#   true            – the torrent is removed from qBittorrent, keeping the
+#                     files, and they are moved into TORRENT_DONE.
+QBIT_URL           = os.getenv("QBIT_URL", "http://localhost:8080")
+QBIT_USER          = os.getenv("QBIT_USER", "admin")
+QBIT_PASS          = os.getenv("QBIT_PASS", "")
+QBIT_CATEGORY      = os.getenv("QBIT_CATEGORY", "aniwatcher")
+QBIT_STOP_SEEDING  = _bool("QBIT_STOP_SEEDING")
 
 ANIME_BASE       = os.getenv("ANIME_BASE",   "/media/anime")
 TORRENT_DONE     = os.getenv("TORRENT_DONE", "/downloads/completed")

@@ -70,9 +70,11 @@ Restart Deluge after you edit the file.
 Set `TORRENT_CLIENT=qbittorrent` and the `QBIT_*` variables (or pick qBittorrent on the Settings tab). The Web UI must be enabled; the user and password are the Web UI login.
 
 - Torrents are added under the `QBIT_CATEGORY` category (created if missing) and saved to `TORRENT_INCOMING`.
-- When one finishes, AniWatcher **removes it from qBittorrent, keeping the files**, and moves them into `TORRENT_DONE`. The renamer then handles them exactly as with Deluge. Nothing is seeded after that: the files are renamed, cleaned and moved into the library, so a seeding torrent would only end up "missing files".
+- When one finishes, its files are handed to `TORRENT_DONE` and the renamer handles them exactly as with Deluge. How, depends on `QBIT_STOP_SEEDING` (also a checkbox on the Settings tab):
+  - `false` (default) — **keeps seeding.** The files are hard-linked into `TORRENT_DONE` (a second name for the same data, so no extra space; copied if a hard link is impossible), and the renamer copies them on into the library before cleaning titles, so the seeding files are never modified. The library copy does take its own space while the torrent seeds. The torrent is tagged `aniwatcher-imported` so it is handed over once.
+  - `true` — **stops seeding.** The torrent is removed from qBittorrent, keeping the files, and they are moved into `TORRENT_DONE`. Removing it first stops qBittorrent seeding from a path that is about to disappear.
 - qBittorrent reports paths as **it** sees them, so both containers must see the downloads at the **same path** — e.g. mount the host's downloads folder at `/downloads` in both, with `TORRENT_INCOMING=/downloads/aniwatcher/incoming` and `TORRENT_DONE=/downloads/aniwatcher/done`. Keeping both under one mount also makes the move an instant rename instead of a copy.
-- Anything left in `TORRENT_INCOMING` that no torrent accounts for (a move that failed) is retried after 10 minutes.
+- With `QBIT_STOP_SEEDING=true`, anything left in `TORRENT_INCOMING` that no torrent accounts for (a move that failed) is retried after 10 minutes.
 
 ### 3. Get a MyAnimeList client ID
 
@@ -127,6 +129,7 @@ These values come from environment variables (`.env`). Most of them can also be 
 | `QBIT_USER`      | `admin`                | qBittorrent Web UI user                       |
 | `QBIT_PASS`      | *(empty)*              | qBittorrent Web UI password                   |
 | `QBIT_CATEGORY`  | `aniwatcher`           | Category AniWatcher's torrents are added under |
+| `QBIT_STOP_SEEDING` | `false`             | `true` = remove finished torrents from qBittorrent and move the files |
 | `MAL_CLIENT_ID`  | *(empty)*              | MyAnimeList API client ID                     |
 | `ANIME_BASE`     | `/media/anime`         | Root folder of the anime library              |
 | `TORRENT_DONE`   | `/downloads/completed` | Deluge's completed-downloads folder           |

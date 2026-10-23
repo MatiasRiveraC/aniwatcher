@@ -4,12 +4,20 @@ qBittorrent support, over its Web UI API (v2).
 Torrents are added under one category (`qbit_category`) and saved to
 `torrent_incoming`. qBittorrent has no "move when finished" that is safe to
 rely on here, so `import_completed()` does the hand-off itself: when a torrent
-in that category finishes, it is removed from qBittorrent — keeping the files
-— and its file or folder is moved into `torrent_done`. From there the normal
-renamer takes over, exactly as with Deluge.
+in that category finishes, its files are put into `torrent_done`, where the
+normal renamer takes over exactly as with Deluge. Two ways, by
+`qbit_stop_seeding`:
 
-Removing it first matters: qBittorrent would otherwise keep seeding from a
-path that no longer exists and mark the torrent "missing files".
+- **Keep seeding** (default): the torrent stays in qBittorrent. Its files are
+  hard-linked into `torrent_done` — a second name for the same data, so no
+  extra space and nothing moves out from under qBittorrent — or copied where
+  a hard link is impossible. The renamer copies them on into the library and
+  only then strips titles, so the seeding files are never modified. The
+  torrent is tagged `aniwatcher-imported` so it is handed over once.
+- **Stop seeding**: the torrent is removed from qBittorrent, keeping the files,
+  and they are moved into `torrent_done`. Removing it first matters:
+  qBittorrent would otherwise go on seeding from a path that no longer exists
+  and mark the torrent "missing files".
 
 AniWatcher and qBittorrent must see the downloads at the same path (e.g. both
 mount the host folder at /downloads), since qBittorrent reports its own paths.
@@ -33,6 +41,9 @@ _BUSY_STATES = {
 # Items left in the incoming folder with no torrent behind them (a move that
 # failed after the torrent was removed) are moved on once they are this old.
 _ORPHAN_AGE = 600
+
+# Marks a torrent already handed to the renamer while it keeps seeding.
+IMPORTED_TAG = "aniwatcher-imported"
 
 
 def _s():
@@ -128,17 +139,54 @@ def _move_into_done(src: str, done: str) -> str:
     return dest
 
 
+def _link_or_copy(src: str, dest: str) -> None:
+    try:
+        os.link(src, dest)
+    except OSError:  # another filesystem, or links not allowed: copy instead
+        shutil.copy2(src, dest)
+
+
+def _link_into_done(src: str, done: str) -> str:
+    """Hard-link a torrent's file or folder into done, leaving the original seeding."""
+    dest = _unique(os.path.join(done, os.path.basename(src.rstrip("/"))))
+    try:
+        if os.path.isdir(src):
+            for root, _, files in os.walk(src):
+                target = os.path.join(dest, os.path.relpath(root, src))
+                os.makedirs(target, exist_ok=True)
+                for f in files:
+                    _link_or_copy(os.path.join(root, f), os.path.join(target, f))
+        else:
+            _link_or_copy(src, dest)
+    except OSError:
+        # Half a hand-off would be renamed as if whole; undo it and let the
+        # next pass try again, since the torrent is not tagged yet.
+        if os.path.isdir(dest):
+            shutil.rmtree(dest, ignore_errors=True)
+        elif os.path.exists(dest):
+            os.remove(dest)
+        raise
+    return dest
+
+
+def _tags(t: dict) -> set:
+    return {x.strip() for x in (t.get("tags") or "").split(",") if x.strip()}
+
+
 def import_completed() -> int:
-    """Move finished torrents of our category into torrent_done. Returns how many."""
+    """Hand finished torrents of our category to the renamer. Returns how many."""
     s = _s()
     done, incoming = s["torrent_done"], s["torrent_incoming"]
+    stop_seeding = bool(s.get("qbit_stop_seeding"))
     os.makedirs(done, exist_ok=True)
-    moved = 0
+    handed = 0
 
     torrents = _torrents(s)
     for t in torrents:
         if t.get("progress", 0) < 1 or t.get("state") in _BUSY_STATES:
             continue
+        if IMPORTED_TAG in _tags(t):
+            continue  # already handed over, still seeding
         src = t.get("content_path") or os.path.join(t.get("save_path", ""), t.get("name", ""))
         if not os.path.exists(src):
             # Usually a path mismatch: qBittorrent and AniWatcher must mount
@@ -146,20 +194,33 @@ def import_completed() -> int:
             log.warning(f"Finished torrent not found at {src} — is the downloads folder "
                         f"mounted at the same path in both containers?")
             continue
+
+        if not stop_seeding:
+            try:
+                dest = _link_into_done(src, done)
+            except OSError as e:
+                log.error(f"Could not hand {src} to {done}: {e}")
+                continue
+            _client.call("POST", "/torrents/addTags", data={"hashes": t["hash"], "tags": IMPORTED_TAG})
+            log.info(f"Imported from qBittorrent (still seeding): {t.get('name')} → {dest}")
+            handed += 1
+            continue
+
         _client.call("POST", "/torrents/delete", data={"hashes": t["hash"], "deleteFiles": "false"})
         try:
             dest = _move_into_done(src, done)
             log.info(f"Imported from qBittorrent: {t.get('name')} → {dest}")
-            moved += 1
+            handed += 1
         except OSError as e:
             # The torrent is gone from qBittorrent but the files are still in
-            # incoming; the orphan sweep below retries them on a later pass.
+            # incoming; the sweep below retries them on a later pass.
             log.error(f"Could not move {src} into {done}: {e}")
 
-    # Anything in incoming that no torrent of ours accounts for, and that has
-    # sat there a while, is a move that failed earlier — or a file dropped in
-    # by hand. Hand it on too.
-    if os.path.isdir(incoming):
+    # Stop-seeding only: anything in incoming that no torrent accounts for, and
+    # that has sat there a while, is a move that failed after its torrent was
+    # removed — or a file dropped in by hand. Hand it on too. (While seeding,
+    # every file has a torrent, and one the user removed later is theirs.)
+    if stop_seeding and os.path.isdir(incoming):
         known = set()
         # Every torrent qBittorrent has, not just ours: a renamed category must
         # not make a live download look like a leftover.
@@ -179,10 +240,10 @@ def import_completed() -> int:
             try:
                 dest = _move_into_done(path, done)
                 log.info(f"Moved leftover {name} from incoming → {dest}")
-                moved += 1
+                handed += 1
             except OSError as e:
                 log.error(f"Could not move leftover {path}: {e}")
-    return moved
+    return handed
 
 
 def import_loop() -> None:

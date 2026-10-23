@@ -4,7 +4,8 @@ import logging
 
 from config import DATA_FILE, DELUGE_HOST, DELUGE_PORT, DELUGE_USER, DELUGE_PASS, \
     ANIME_BASE, TORRENT_DONE, POLL_INTERVAL, WATCH_INTERVAL, MAL_CLIENT_ID, \
-    TORRENT_CLIENT, QBIT_URL, QBIT_USER, QBIT_PASS, QBIT_CATEGORY, TORRENT_INCOMING, LOCK_PATHS
+    TORRENT_CLIENT, QBIT_URL, QBIT_USER, QBIT_PASS, QBIT_CATEGORY, QBIT_STOP_SEEDING, \
+    TORRENT_INCOMING, LOCK_PATHS
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ DEFAULT_SETTINGS = {
     "qbit_user":            QBIT_USER,
     "qbit_pass":            QBIT_PASS,
     "qbit_category":        QBIT_CATEGORY,
+    "qbit_stop_seeding":    QBIT_STOP_SEEDING,
     "mal_client_id":        MAL_CLIENT_ID,
     "auto_clean_metadata":  True,
 }

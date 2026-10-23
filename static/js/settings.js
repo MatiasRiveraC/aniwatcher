@@ -41,6 +41,8 @@ function populateSettings(s) {
   // Checkboxes
   const chk = document.getElementById('s_auto_clean_metadata');
   if (chk) chk.checked = s['auto_clean_metadata'] !== false;
+  const seed = document.getElementById('s_qbit_stop_seeding');
+  if (seed) seed.checked = s['qbit_stop_seeding'] === true;
 }
 
 async function loadSettingsTab() {

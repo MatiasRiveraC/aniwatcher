@@ -200,6 +200,13 @@
             <label for="s_qbit_pass">Password</label>
             <input type="password" id="s_qbit_pass" name="qbit_pass" placeholder="(not set)" autocomplete="new-password"/>
           </div>
+          <div class="settings-field">
+            <label class="settings-toggle-label">
+              <input type="checkbox" id="s_qbit_stop_seeding" name="qbit_stop_seeding" value="true" class="settings-checkbox"/>
+              Stop seeding once imported
+            </label>
+            <span class="settings-hint">On: finished torrents are removed from qBittorrent and their files moved into the library. Off: they keep seeding and the library gets its own copy.</span>
+          </div>
         </div>
       </div>
 
