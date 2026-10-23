@@ -10,7 +10,8 @@ from data import load_data, save_data, get_settings
 from services.mal import fetch_mal_info
 from services.nyaa import search_nyaa_full, release_sort_key
 from services.metadata import inspect_series, strip_mkv_title
-from services.deluge import add_torrent_to_deluge, episode_exists_on_disk
+from services.library import episode_exists_on_disk
+from services.torrents import add_torrent, client_name
 from services.poller import do_full_season
 from utils.parsing import extract_episode_number
 
@@ -122,7 +123,7 @@ def manual_download(entry_id):
     entry = next((e for e in data["watchlist"] if e["id"] == entry_id), None)
     if not entry:
         return jsonify({"error": "not found"}), 404
-    ok = add_torrent_to_deluge(url)
+    ok = add_torrent(url)
     if ok:
         ep    = extract_episode_number(body.get("title", ""))
         title = body.get("title", url)
@@ -132,7 +133,7 @@ def manual_download(entry_id):
         })
         save_data(data)
         return jsonify({"ok": True})
-    return jsonify({"error": "Deluge error"}), 500
+    return jsonify({"error": f"{client_name()} error"}), 500
 
 
 @bp.route("/api/watchlist/<int:entry_id>/toggle-manual", methods=["POST"])

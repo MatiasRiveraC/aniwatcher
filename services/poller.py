@@ -8,7 +8,8 @@ from data import get_settings
 from data import load_data, save_data
 from services.mal import refresh_mal
 from services.nyaa import search_nyaa, search_nyaa_full, release_sort_key
-from services.deluge import add_torrent_to_deluge, episode_exists_on_disk
+from services.library import episode_exists_on_disk
+from services.torrents import add_torrent
 from utils.parsing import extract_episode_number, extract_season
 
 log = logging.getLogger(__name__)
@@ -112,7 +113,7 @@ def do_poll():
             if ep and any(g.get("ep") == ep for g in entry.get("episodes_grabbed", [])):
                 continue
 
-            ok = add_torrent_to_deluge(r["link"])
+            ok = add_torrent(r["link"])
             if ok:
                 data["downloaded"].append({"url": key, "title": r["title"], "date": str(datetime.now())})
                 entry.setdefault("episodes_grabbed", [])
@@ -160,7 +161,7 @@ def do_full_season(entry_id: int):
     for b in sorted(batches, key=lambda x: x["seeders"], reverse=True):
         if b["link"] in data["downloaded"]:
             continue
-        if add_torrent_to_deluge(b["link"]):
+        if add_torrent(b["link"]):
             data["downloaded"].append({"url": b["link"], "title": b["title"], "date": str(datetime.now())})
             entry.setdefault("episodes_grabbed", [])
             entry["episodes_grabbed"].append({"ep": "batch", "title": b["title"], "date": str(datetime.now())})
@@ -189,7 +190,7 @@ def do_full_season(entry_id: int):
                 data["downloaded"].append(r["link"])
                 continue
 
-            ok = add_torrent_to_deluge(r["link"])
+            ok = add_torrent(r["link"])
             log.info(f"  → add_torrent result: {ok}")
             if ok:
                 data["downloaded"].append(r["link"])

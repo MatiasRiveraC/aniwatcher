@@ -6,7 +6,7 @@ import time
 
 from config import VIDEO_EXTS
 from data import load_data, save_data, get_settings
-from services.deluge import build_save_path
+from services.library import build_save_path
 from services.metadata import strip_mkv_title
 
 log = logging.getLogger(__name__)
