@@ -38,7 +38,8 @@
     <div class="add-row">
       <input type="text" id="titleInput" placeholder="Folder name (e.g. Fumetsu no Anata)"
              autocomplete="off" oninput="onTitleInput()" onkeydown="if(event.key==='Enter') addAnime()"/>
-      <input type="text" id="searchTitleInput" placeholder="Nyaa search (optional)" autocomplete="off" style="flex:1;min-width:180px"/>
+      <input type="text" id="searchTitleInput" placeholder="Nyaa search (optional, several: a | b)" autocomplete="off" style="flex:1;min-width:180px"
+             title="Several nyaa searches separated by |. They are tried in order; the next one only when the ones before find nothing to grab."/>
       <select id="seasonInput" onchange="onSeasonChange()">
         <option value="1">Season 1</option><option value="2">Season 2</option>
         <option value="3">Season 3</option><option value="4">Season 4</option>
@@ -95,6 +96,7 @@
       <div id="enrichCurrent" style="font-size:.75rem;color:var(--muted);margin-top:.25rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
     </div>
     <div id="dlList" style="max-height:500px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;background:var(--card)"></div>
+    <div id="dlPager" style="display:flex;justify-content:center;align-items:center;gap:1rem;margin-top:.75rem"></div>
   </div>
 
   <div class="tab-panel" id="tab-settings">
@@ -323,6 +325,42 @@
   </div>
 </div>
 
+<!-- Nyaa searches editor -->
+<div class="modal-overlay" id="searchModal" onclick="if(event.target===this)closeSearchEditor()">
+  <div class="modal" style="width:min(560px,96vw)">
+    <div class="modal-header">
+      🔍 Nyaa searches
+      <span id="searchModalTitle"></span>
+      <button class="modal-close" onclick="closeSearchEditor()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:.8rem;color:var(--muted);margin-bottom:.9rem;line-height:1.5">
+        Tried from top to bottom. A poll moves to the next search only when the ones above
+        have nothing to grab. For season 2 and later, polls add “S02” etc. to each search.
+      </p>
+      <div id="searchRows"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:.9rem;gap:.75rem">
+        <button class="btn-icon" onclick="addSearchRow()">+ Add search</button>
+        <button class="btn-add" onclick="saveSearches()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Poll preview modal -->
+<div class="modal-overlay" id="pollModal" onclick="if(event.target===this)closePollModal()">
+  <div class="modal" style="width:min(860px,96vw)">
+    <div class="modal-header">
+      👁 Test poll
+      <span id="pollModalTitle"></span>
+      <button class="modal-close" onclick="closePollModal()">✕</button>
+    </div>
+    <div class="modal-body" id="pollModalBody">
+      <div class="modal-empty">Loading…</div>
+    </div>
+  </div>
+</div>
+
 <!-- Completed files modal -->
 <div class="modal-overlay" id="completedModal" onclick="if(event.target===this)closeCompletedModal()">
   <div class="modal">
@@ -356,6 +394,7 @@
   loadWatchlist();
   loadStatus();
   setInterval(() => { loadWatchlist(); loadStatus(); }, 30000);
+  setInterval(renderWatcher, 1000);
   document.addEventListener('click', e => {
     if (!e.target.closest('.add-section')) hideSearch();
     if (!e.target.closest('.notif-panel') && !e.target.closest('.bell-btn'))

@@ -1,5 +1,6 @@
 import os
 import shutil
+import time
 import queue
 import logging
 import threading
@@ -11,6 +12,7 @@ from data import load_data, get_settings
 from services.library import inside
 from services.metadata import clean_library, mkvpropedit_available
 from services.torrents import client_name
+from services.renamer import watcher_state
 
 bp  = Blueprint("system", __name__)
 log = logging.getLogger(__name__)
@@ -47,6 +49,8 @@ def status():
         "renamed":              len(data.get("renamed", [])),
         "unread_notifications": unread,
         "torrent_client":       client_name(),
+        # `now` lets the page correct for its own clock when counting down
+        "watcher":              {**watcher_state, "now": time.time()},
     })
 
 

@@ -1,4 +1,5 @@
 import threading
+from datetime import datetime, timezone
 
 import requests
 
@@ -11,6 +12,15 @@ from services.nyaa_details import release_details
 bp = Blueprint("downloads", __name__)
 
 
+def _iso_utc(date: str) -> str:
+    """Stored dates are naive server-local time; return ISO UTC so the browser can
+    group by its own day. '' when missing or unreadable."""
+    try:
+        return datetime.fromisoformat(date).astimezone(timezone.utc).isoformat()
+    except (TypeError, ValueError):
+        return ""
+
+
 @bp.route("/api/downloaded", methods=["GET"])
 def get_downloaded():
     data   = load_data()
@@ -19,7 +29,7 @@ def get_downloaded():
         if isinstance(d, str):
             result.append({"url": d, "title": d, "date": ""})
         else:
-            result.append(d)
+            result.append({**d, "date": _iso_utc(d.get("date", ""))})
     return jsonify(result)
 
 

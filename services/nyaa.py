@@ -244,10 +244,11 @@ def search_nyaa_full(title: str, season: int, names=(), total_episodes: int | No
 
 
 def show_names(entry: dict) -> list:
-    """Every name a watchlist entry's show is released under."""
+    """Every name a watchlist entry's show is released under: the user's nyaa
+    searches first (in their order), then the folder title and MAL's names."""
     return [n for n in dict.fromkeys([
-        entry.get("search_title"), entry.get("title"), entry.get("title_romaji"),
-        entry.get("title_english"), *(entry.get("title_synonyms") or []),
+        *(entry.get("search_titles") or []), entry.get("search_title"), entry.get("title"),
+        entry.get("title_romaji"), entry.get("title_english"), *(entry.get("title_synonyms") or []),
     ]) if n and n.strip()]
 
 
