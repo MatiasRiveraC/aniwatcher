@@ -73,13 +73,18 @@ _NOISE = {
 _ROMAN = {2: 'ii', 3: 'iii', 4: 'iv', 5: 'v', 6: 'vi'}
 
 
-def name_tokens(text: str) -> list:
+def fold_words(text: str) -> list:
     """Lowercase ASCII words, long romaji vowels folded (Shoutai = Shotai)."""
     t = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode().lower()
     t = t.replace('&', ' and ')
     t = re.sub(r'ou|oo', 'o', t)
     t = re.sub(r'uu', 'u', t)
-    return [w for w in re.split(r'[^a-z0-9]+', t) if w and w not in _NOISE]
+    return [w for w in re.split(r'[^a-z0-9]+', t) if w]
+
+
+def name_tokens(text: str) -> list:
+    """fold_words without release noise (quality, audio, version tags)."""
+    return [w for w in fold_words(text) if w not in _NOISE]
 
 
 def _bare(title: str) -> str:

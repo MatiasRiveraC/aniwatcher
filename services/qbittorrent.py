@@ -143,7 +143,9 @@ def _link_or_copy(src: str, dest: str) -> None:
     try:
         os.link(src, dest)
     except OSError:  # another filesystem, or links not allowed: copy instead
-        shutil.copy2(src, dest)
+        # Not shutil.copy2, which fails with EPERM on TrueNAS ACL datasets
+        from services.renamer import copy_contents
+        copy_contents(src, dest)
 
 
 def _link_into_done(src: str, done: str) -> str:
