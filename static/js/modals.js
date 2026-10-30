@@ -147,7 +147,7 @@ function renderMarkdown(src) {
   const safeUrl = u => /^https?:\/\//i.test(u) ? u : null;
   const inline = s => s
     .replace(/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g, (m, alt, u) =>
-      safeUrl(u) ? `<img src="${u}" alt="${alt}" loading="lazy" referrerpolicy="no-referrer">` : m)
+      safeUrl(u) ? `<img src="${u}" alt="${alt}" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : m)
     .replace(/\[((?:<img[^>]*>|[^\]])+)\]\(([^)\s]+)[^)]*\)/g, (m, text, u) =>
       safeUrl(u) ? `<a href="${u}" target="_blank" rel="noopener noreferrer nofollow">${text}</a>` : m)
     .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer nofollow">$2</a>')
