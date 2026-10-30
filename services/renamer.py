@@ -1,3 +1,4 @@
+import errno
 import os
 import re
 import shutil
@@ -6,7 +7,7 @@ import time
 
 from config import VIDEO_EXTS
 from data import load_data, save_data, get_settings
-from services.deluge import build_save_path
+from services.library import build_save_path
 from services.metadata import strip_mkv_title
 
 log = logging.getLogger(__name__)
@@ -103,16 +104,66 @@ def _remove_source(src: str) -> bool:
     return True
 
 
-def _copy_contents(src: str, dst: str):
+def _copy_limited(src: str, dst: str, mbps: int):
+    """shutil.copyfile at no more than `mbps` MB/s, so a big batch landing in the
+    library doesn't starve everything else on the disk (an HDD's I/O scheduler often
+    ignores idle priority). Flushed as it goes: unflushed writes would pile up in the
+    page cache and hit the disk in one burst anyway."""
+    chunk = 4 * 2**20
+    rate  = mbps * 2**20
+    start, done = time.monotonic(), 0
+    with open(src, "rb") as fi, open(dst, "wb") as fo:
+        while True:
+            buf = fi.read(chunk)
+            if not buf:
+                break
+            fo.write(buf)
+            fo.flush()
+            os.fsync(fo.fileno())
+            done += len(buf)
+            ahead = done / rate - (time.monotonic() - start)
+            if ahead > 0:
+                time.sleep(ahead)
+
+
+def _copy_contents(src: str, dst: str, mbps: int = 0):
     """Copy the file's data and, when allowed, its timestamps. Not shutil.copy2: on a
     TrueNAS dataset with an SMB/NFSv4 ACL its chmod and xattr copy fail with EPERM, and
     the file should take its permissions from the library folder's ACL anyway."""
-    shutil.copyfile(src, dst)
+    if mbps > 0:
+        _copy_limited(src, dst, mbps)
+    else:
+        shutil.copyfile(src, dst)
     try:
         st = os.stat(src)
         os.utime(dst, ns=(st.st_atime_ns, st.st_mtime_ns))
     except OSError:
         pass
+
+
+def _move_into_library(src: str, dest: str, copy_mbps: int = 0) -> str:
+    """Put src at dest. A rename when both are on one filesystem: instant, no data
+    rewritten, and src is gone. Otherwise (EXDEV — another disk, or another mount of
+    the same one, as two bind mounts in a container are) a copy under a temp name, so
+    a failed copy never leaves a partial file at dest that a later pass would trust;
+    the caller removes src. Returns "moved" or "copied"; raises if both fail."""
+    try:
+        os.rename(src, dest)
+        return "moved"
+    except OSError as e:
+        if e.errno != errno.EXDEV:
+            log.warning(f"Rename into the library failed ({e}), copying instead")
+    tmp = dest + ".part"
+    try:
+        _copy_contents(src, tmp, copy_mbps)
+        os.replace(tmp, dest)
+    except Exception:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+    return "copied"
 
 
 def _torrent_dir(root: str, top: str, season_from_folder):
@@ -196,20 +247,12 @@ def watch_completed_folder():
                             if not already:
                                 log.info(f"Already exists at dest, removing source: {new_fname}")
                         else:
-                            # Copy under a temp name so a failed copy never leaves a
-                            # partial file at dest that a later pass would trust
-                            tmp = dest + ".part"
                             try:
-                                _copy_contents(src, tmp)
-                                os.replace(tmp, dest)
+                                how = _move_into_library(src, dest, int(settings.get("copy_limit_mbps") or 0))
                             except Exception as e:
-                                log.error(f"Copy failed {src}: {e}")
-                                try:
-                                    os.remove(tmp)
-                                except OSError:
-                                    pass
+                                log.error(f"Move failed {src}: {e}")
                                 continue
-                            log.info(f"Copied+renamed: {fname} → {new_fname}")
+                            log.info(f"{how.capitalize()}+renamed: {fname} → {new_fname}")
                             if settings.get("auto_clean_metadata", True):
                                 strip_mkv_title(dest)
 

@@ -1,13 +1,13 @@
 # AniWatcher
 
 A self-hosted anime downloader for your home server.
-AniWatcher watches nyaa.si for new episodes of the shows on your watchlist, sends them to Deluge, and then renames and sorts the finished files into a Jellyfin/Plex-friendly library.
+AniWatcher watches nyaa.si for new episodes of the shows on your watchlist, sends them to Deluge or qBittorrent, and then renames and sorts the finished files into a Jellyfin/Plex-friendly library.
 
 ## Features
 
 - **Watchlist**: search MyAnimeList, add a show and season, and AniWatcher tracks new episodes automatically.
 - **Automatic polling**: checks the nyaa.si RSS feed on a schedule (default every 15 min) and picks the best-seeded release that matches your preferred resolution and release groups.
-- **Deluge integration**: pushes torrents to a Deluge daemon over RPC.
+- **Deluge or qBittorrent**: pushes torrents to a Deluge daemon over RPC, or to qBittorrent over its Web UI API.
 - **Auto rename & organize**: moves finished video files into `Show/Season N/Show - SxxEyy.ext`.
 - **Metadata cleaning**: removes the release-group `title` tags that MKV files carry, which Jellyfin would otherwise show as the episode name (uses `mkvpropedit`).
 - **Manual tools**: full-season grabs, picking a release by hand, a disk rescan, a library browser, an MKV metadata inspector, and a view of the completed folder.
@@ -17,8 +17,8 @@ AniWatcher watches nyaa.si for new episodes of the shows on your watchlist, send
 
 1. Add an anime and season in the web UI.
 2. Every `POLL_INTERVAL` seconds, AniWatcher queries nyaa.si and chooses the best matching release.
-3. The torrent goes to Deluge.
-4. Every `WATCH_INTERVAL` seconds, a folder watcher scans the Deluge completed folder.
+3. The torrent goes to Deluge or qBittorrent.
+4. Every `WATCH_INTERVAL` seconds, a folder watcher scans the completed folder. (With qBittorrent, finished torrents are first removed from qBittorrent — keeping the files — and moved there; see [Using qBittorrent](#using-qbittorrent).)
 5. New video files are renamed and moved, for example:
 
    `[SubsPlease] Frieren - 28 (1080p).mkv` → `Frieren - S01E28.mkv`
@@ -37,9 +37,9 @@ AniWatcher watches nyaa.si for new episodes of the shows on your watchlist, send
 ## Requirements
 
 - Docker + Docker Compose (recommended), **or** Python 3.12+ with `mkvtoolnix` installed
-- A running [Deluge](https://deluge-torrent.org/) daemon with remote connections enabled
+- A running [Deluge](https://deluge-torrent.org/) daemon with remote connections enabled, **or** [qBittorrent](https://www.qbittorrent.org/) with the Web UI on
 - A MyAnimeList API client ID (free)
-- Deluge and AniWatcher must both be able to reach the completed-downloads folder and the anime library folder
+- The torrent client and AniWatcher must both be able to reach the download folders and the anime library folder
 
 ## Installation
 
@@ -64,6 +64,17 @@ aniwatcher:choose_a_strong_password:10
 ```
 
 Restart Deluge after you edit the file.
+
+### Using qBittorrent
+
+Set `TORRENT_CLIENT=qbittorrent` and the `QBIT_*` variables (or pick qBittorrent on the Settings tab). The Web UI must be enabled; the user and password are the Web UI login.
+
+- Torrents are added under the `QBIT_CATEGORY` category (created if missing) and saved to `TORRENT_INCOMING`.
+- When one finishes, its files are handed to `TORRENT_DONE` and the renamer handles them exactly as with Deluge. How, depends on `QBIT_STOP_SEEDING` (also a checkbox on the Settings tab):
+  - `false` (default) — **keeps seeding.** The files are hard-linked into `TORRENT_DONE` (a second name for the same data, so no extra space; copied if a hard link is impossible), and the renamer copies them on into the library before cleaning titles, so the seeding files are never modified. The library copy does take its own space while the torrent seeds. The torrent is tagged `aniwatcher-imported` so it is handed over once.
+  - `true` — **stops seeding.** The torrent is removed from qBittorrent, keeping the files, and they are moved into `TORRENT_DONE`. Removing it first stops qBittorrent seeding from a path that is about to disappear.
+- qBittorrent reports paths as **it** sees them, so both containers must see the downloads at the **same path** — e.g. mount the host's downloads folder at `/downloads` in both, with `TORRENT_INCOMING=/downloads/aniwatcher/incoming` and `TORRENT_DONE=/downloads/aniwatcher/done`. Keeping both under one mount also makes the move an instant rename instead of a copy.
+- With `QBIT_STOP_SEEDING=true`, anything left in `TORRENT_INCOMING` that no torrent accounts for (a move that failed) is retried after 10 minutes.
 
 ### 3. Get a MyAnimeList client ID
 
@@ -109,16 +120,50 @@ These values come from environment variables (`.env`). Most of them can also be 
 
 | Variable         | Default                | Description                                   |
 |------------------|------------------------|-----------------------------------------------|
+| `TORRENT_CLIENT` | `deluge`               | `deluge` or `qbittorrent`                     |
 | `DELUGE_HOST`    | `localhost`            | Deluge daemon host/IP                         |
 | `DELUGE_PORT`    | `58846`                | Deluge daemon RPC port                        |
 | `DELUGE_USER`    | `localclient`          | Deluge auth user                              |
 | `DELUGE_PASS`    | *(empty)*              | Deluge auth password                          |
+| `QBIT_URL`       | `http://localhost:8080`| qBittorrent Web UI address                    |
+| `QBIT_USER`      | `admin`                | qBittorrent Web UI user                       |
+| `QBIT_PASS`      | *(empty)*              | qBittorrent Web UI password                   |
+| `QBIT_CATEGORY`  | `aniwatcher`           | Category AniWatcher's torrents are added under |
+| `QBIT_STOP_SEEDING` | `false`             | `true` = remove finished torrents from qBittorrent and move the files |
 | `MAL_CLIENT_ID`  | *(empty)*              | MyAnimeList API client ID                     |
 | `ANIME_BASE`     | `/media/anime`         | Root folder of the anime library              |
 | `TORRENT_DONE`   | `/downloads/completed` | Deluge's completed-downloads folder           |
+| `TORRENT_INCOMING` | `/downloads/incoming` | qBittorrent only: where torrents download    |
+| `LOCK_PATHS`     | `false`                | `true` = folder paths can't be changed from the UI |
+| `PUID` / `PGID`  | `568`                  | User/group the container runs as (Docker Compose) |
 | `POLL_INTERVAL`  | `900`                  | Seconds between nyaa.si polls                 |
 | `WATCH_INTERVAL` | `60`                   | Seconds between completed-folder scans        |
+| `COPY_LIMIT_MBPS` | `0`                   | MB/s cap when a finished file has to be copied into the library (0 = none); see below |
 | `WEB_PORT`       | `5000`                 | Host port for the web UI (Docker Compose only) |
+
+### Moving files into the library
+
+Finished files are **renamed** into the library when the completed folder and
+`ANIME_BASE` are on the same mount: instant, whatever the size. When they are
+not, each file is copied (under a `.part` name) and the original deleted, which
+for a Blu-ray batch is many GB of disk traffic. `COPY_LIMIT_MBPS` (also in
+Settings) caps that copy so the disk stays usable for streaming meanwhile.
+
+In Docker, two bind mounts are two mounts even when both are folders of one
+host disk, so the default compose file always copies. To get renames, mount
+their common host folder once and build with `PATH_LINKS`, which links the
+paths the app uses into it (the paths must stay what the torrent client sees):
+
+```yaml
+    build:
+      args:
+        PATH_LINKS: "/downloads=/srv/qbittorrent/downloads /media/tv=/srv/media/tv"
+    volumes:
+      - /srv:/srv        # instead of the two folders
+```
+
+The container can then reach everything under that folder, so pick the
+narrowest one that holds both.
 
 ## Project structure
 
@@ -136,3 +181,5 @@ templates/, static/ Web UI
 
 - The web UI has **no authentication**. Run it only on a trusted LAN or behind a reverse proxy that requires a login.
 - Never commit `.env`. Use `.env.example` as the template.
+- Set `LOCK_PATHS=true` on a shared network. Without it, anyone who can open the UI can change the folder settings, and the completed-folder tool can delete files there.
+- Passwords are never sent back to the browser; leaving a password field blank on the Settings tab keeps the saved one.
