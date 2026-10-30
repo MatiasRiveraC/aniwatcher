@@ -367,6 +367,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 2rem; }
 }
 .settings-field input:focus,
 .settings-field select:focus { border-color: var(--accent2); }
+.settings-field input[readonly] { opacity: .55; cursor: not-allowed; }
 .settings-hint { font-size: .75rem; color: var(--muted); line-height: 1.4; }
 .settings-actions {
   display: flex; justify-content: flex-end; gap: .75rem; padding-top: .5rem;

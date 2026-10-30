@@ -156,12 +156,63 @@
           <div class="settings-field">
             <label for="s_torrent_done">Torrent Completed Path</label>
             <input type="text" id="s_torrent_done" name="torrent_done" placeholder="/downloads/completed"/>
-            <span class="settings-hint">Deluge's completed downloads folder.</span>
+            <span class="settings-hint">Finished downloads waiting to be renamed. With Deluge, its completed folder.</span>
+          </div>
+          <div class="settings-field qbit-only">
+            <label for="s_torrent_incoming">Torrent Incoming Path</label>
+            <input type="text" id="s_torrent_incoming" name="torrent_incoming" placeholder="/downloads/incoming"/>
+            <span class="settings-hint">Where qBittorrent saves AniWatcher's torrents while they download.</span>
+          </div>
+        </div>
+        <p class="settings-hint" id="lockedPathsHint" style="display:none">
+          Folder paths are fixed by the server (LOCK_PATHS) and can't be changed here.
+        </p>
+      </div>
+
+      <div class="settings-section">
+        <h3 class="settings-section-title">Torrent Client</h3>
+        <div class="settings-grid settings-grid-full">
+          <div class="settings-field">
+            <label for="s_torrent_client">Client</label>
+            <select id="s_torrent_client" name="torrent_client" onchange="showClientFields(this.value)">
+              <option value="deluge">Deluge</option>
+              <option value="qbittorrent">qBittorrent</option>
+            </select>
           </div>
         </div>
       </div>
 
-      <div class="settings-section">
+      <div class="settings-section qbit-only">
+        <h3 class="settings-section-title">qBittorrent Connection</h3>
+        <div class="settings-grid">
+          <div class="settings-field">
+            <label for="s_qbit_url">Web UI URL</label>
+            <input type="text" id="s_qbit_url" name="qbit_url" placeholder="http://localhost:8080"/>
+          </div>
+          <div class="settings-field">
+            <label for="s_qbit_category">Category</label>
+            <input type="text" id="s_qbit_category" name="qbit_category" placeholder="aniwatcher"/>
+            <span class="settings-hint">Finished torrents in this category are removed from qBittorrent and renamed.</span>
+          </div>
+          <div class="settings-field">
+            <label for="s_qbit_user">Username</label>
+            <input type="text" id="s_qbit_user" name="qbit_user" placeholder="admin"/>
+          </div>
+          <div class="settings-field">
+            <label for="s_qbit_pass">Password</label>
+            <input type="password" id="s_qbit_pass" name="qbit_pass" placeholder="(not set)" autocomplete="new-password"/>
+          </div>
+          <div class="settings-field">
+            <label class="settings-toggle-label">
+              <input type="checkbox" id="s_qbit_stop_seeding" name="qbit_stop_seeding" value="true" class="settings-checkbox"/>
+              Stop seeding once imported
+            </label>
+            <span class="settings-hint">On: finished torrents are removed from qBittorrent and their files moved into the library. Off: they keep seeding and the library gets its own copy.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section deluge-only">
         <h3 class="settings-section-title">Deluge Connection</h3>
         <div class="settings-grid">
           <div class="settings-field">
@@ -178,7 +229,7 @@
           </div>
           <div class="settings-field">
             <label for="s_deluge_pass">Password</label>
-            <input type="password" id="s_deluge_pass" name="deluge_pass" placeholder="(leave blank if none)"/>
+            <input type="password" id="s_deluge_pass" name="deluge_pass" placeholder="(not set)" autocomplete="new-password"/>
           </div>
         </div>
       </div>

@@ -22,7 +22,7 @@ async function fullSeason(id) {
     _pickEntryId = id;
     openPicker(res.candidates);
   } else {
-    toast(res.ok ? 'Full season queued — check Deluge' : (res.error || 'Error'), res.ok ? 'warn' : 'error');
+    toast(res.ok ? 'Full season queued — check your torrent client' : (res.error || 'Error'), res.ok ? 'warn' : 'error');
   }
   setTimeout(() => { loadWatchlist(); loadStatus(); }, 2000);
 }
@@ -59,7 +59,7 @@ async function pickTorrent(idx) {
   const r = _pickCandidates[idx];
   if (!r || !_pickEntryId) return;
   const res = await api.watchlist.manualDownload(_pickEntryId, { url: r.link, title: r.title });
-  toast(res.ok ? 'Added to Deluge ✓' : (res.error || 'Error'), res.ok ? 'success' : 'error');
+  toast(res.ok ? 'Sent to torrent client ✓' : (res.error || 'Error'), res.ok ? 'success' : 'error');
   if (res.ok) { closePicker(); loadWatchlist(); }
 }
 
