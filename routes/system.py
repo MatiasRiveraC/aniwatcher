@@ -1,5 +1,6 @@
 import os
 import shutil
+import time
 import queue
 import logging
 import threading
@@ -9,6 +10,7 @@ from flask import Blueprint, render_template, jsonify, Response, request
 from config import VIDEO_EXTS
 from data import load_data, get_settings
 from services.metadata import clean_library, mkvpropedit_available
+from services.renamer import watcher_state
 
 bp  = Blueprint("system", __name__)
 log = logging.getLogger(__name__)
@@ -44,6 +46,8 @@ def status():
         "downloaded":           len(data["downloaded"]),
         "renamed":              len(data.get("renamed", [])),
         "unread_notifications": unread,
+        # `now` lets the page correct for its own clock when counting down
+        "watcher":              {**watcher_state, "now": time.time()},
     })
 
 

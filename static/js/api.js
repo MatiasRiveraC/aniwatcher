@@ -20,6 +20,7 @@ const api = {
     patch:          (id, b) => api._patch(`/api/watchlist/${id}`, b),
     remove:         id      => api._del(`/api/watchlist/${id}`),
     fullSeason:     id      => api._post(`/api/watchlist/${id}/full-season`).then(r => r.json()),
+    pollPreview:    id      => api._get(`/api/watchlist/${id}/poll-preview`),
     manualDownload: (id, b) => api._post(`/api/watchlist/${id}/manual-download`, b).then(r => r.json()),
     toggleManual:   id      => api._post(`/api/watchlist/${id}/toggle-manual`).then(r => r.json()),
     scan:            id      => api._post(`/api/watchlist/${id}/scan`).then(r => r.json()),
