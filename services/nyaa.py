@@ -83,6 +83,12 @@ def release_sort_key(r: dict):
     )
 
 
+def _view_id(entry):
+    """The release's nyaa page id (https://nyaa.si/view/<id>)."""
+    m = re.search(r'/(?:view|download)/(\d+)', entry.get("id") or entry.get("link") or "")
+    return int(m.group(1)) if m else None
+
+
 def _parse_feed(url: str) -> list:
     feed = feedparser.parse(url)
     results = []
@@ -98,6 +104,7 @@ def _parse_feed(url: str) -> list:
                 "size":        entry.get("nyaa_size", "?"),
                 "date":        entry.get("published", ""),
                 "audio_score": audio_score(title),
+                "view_id":     _view_id(entry),
             })
     return results
 

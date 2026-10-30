@@ -1,9 +1,12 @@
 import threading
 
+import requests
+
 from flask import Blueprint, request, jsonify
 
 from data import load_data, save_data
 from services.nyaa import search_nyaa
+from services.nyaa_details import release_details
 
 bp = Blueprint("downloads", __name__)
 
@@ -44,3 +47,12 @@ def manual_poll():
     from services.poller import do_poll
     threading.Thread(target=do_poll, daemon=True).start()
     return jsonify({"ok": True})
+
+
+@bp.route("/api/nyaa/<int:view_id>")
+def api_release_details(view_id):
+    """Description, file list and comments of a nyaa release, for the picker."""
+    try:
+        return jsonify(release_details(view_id))
+    except requests.RequestException as e:
+        return jsonify({"error": f"Could not read nyaa.si/view/{view_id}: {e}"}), 502

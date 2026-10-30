@@ -14,6 +14,8 @@ const api = {
   }),
   _del: url => fetch(url, { method: 'DELETE' }),
 
+  nyaaDetails: id => api._get(`/api/nyaa/${id}`),
+
   watchlist: {
     list:           ()      => api._get('/api/watchlist'),
     add:            body    => api._post('/api/watchlist', body),

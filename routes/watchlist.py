@@ -103,7 +103,8 @@ def full_season(entry_id):
     entry = next((e for e in data["watchlist"] if e["id"] == entry_id), None)
     if not entry:
         return jsonify({"error": "not found"}), 404
-    if entry.get("manual_pick"):
+    # A finished show is a one-off, often many GB: always let the user choose.
+    if entry.get("manual_pick") or entry.get("mode") == "complete":
         # Batches that cover the season first, then single episodes in order.
         batches, episodes = search_entry(entry)
         return jsonify({"ok": True, "manual": True, "candidates": batches[:15] + episodes,
