@@ -54,6 +54,97 @@ def check_completion(entry: dict, data: dict):
 
 # ── Poller ─────────────────────────────────────────────────────────────────────
 
+def search_titles(entry: dict) -> list:
+    """The entry's nyaa searches in the order they are tried. Older entries only have
+    `search_title`; `search_titles[0]` is always kept equal to it."""
+    return entry.get("search_titles") or [entry.get("search_title") or entry["title"]]
+
+
+def clean_search_titles(titles, fallback: str) -> list:
+    """Strip, drop blanks and repeats (keeping order); never empty."""
+    seen, out = set(), []
+    for t in titles or []:
+        t = str(t).strip()
+        if t and t.lower() not in seen:
+            seen.add(t.lower())
+            out.append(t)
+    return out or [fallback]
+
+
+def _poll_query(entry: dict, search: str) -> str:
+    season = entry.get("season", 1)
+    return search if season == 1 else f"{search} S{season:02d}"
+
+
+def check_result(entry: dict, r: dict, dl_urls: set):
+    """Decide what the poller does with nyaa result `r` for `entry`.
+    Returns (skip, ep): skip is None to grab it, else the reason — "season", "start_ep",
+    "downloaded", "on_disk" or "grabbed". Shared by do_poll and preview_poll."""
+    season = entry.get("season", 1)
+    ep     = extract_episode_number(r["title"])
+
+    detected_season = extract_season(r["title"])
+    if detected_season and detected_season != season:
+        return "season", ep
+
+    # With start_episode set: skip anything with no parseable episode number
+    # (specials, movies, fan letters) AND anything below the threshold.
+    start_ep = entry.get("start_episode")
+    if start_ep and (ep is None or ep < start_ep):
+        return "start_ep", ep
+
+    if r["link"] in dl_urls:
+        return "downloaded", ep
+
+    if ep and episode_exists_on_disk(entry["title"], detected_season or season, ep):
+        return "on_disk", ep
+
+    if ep and any(g.get("ep") == ep for g in entry.get("episodes_grabbed", [])):
+        return "grabbed", ep
+
+    return None, ep
+
+
+def preview_poll(entry: dict) -> dict:
+    """Dry run of do_poll for one entry: each nyaa search in order and what a poll would
+    do with its results right now. Grabs nothing and saves nothing."""
+    if not entry.get("active", True):
+        not_polled = "Paused: the poller skips this series."
+    elif entry.get("mode") == "complete":
+        not_polled = "Full-season mode: the poller skips this series (use Full season instead)."
+    elif entry.get("all_grabbed"):
+        not_polled = "All episodes grabbed: the poller skips this series."
+    else:
+        not_polled = None
+
+    data     = load_data()
+    dl_urls  = {d["url"] if isinstance(d, dict) else d for d in data["downloaded"]}
+    searches = []
+    picked   = False
+    queued   = set()  # episodes a poll will grab, so other releases of them get skipped
+    for search in search_titles(entry):
+        query = _poll_query(entry, search)
+        if picked:
+            # do_poll stops at the first search that has something to grab
+            searches.append({"query": query, "tried": False, "results": []})
+            continue
+        results = []
+        for r in search_nyaa(query):
+            skip, ep = check_result(entry, r, dl_urls)
+            if skip is None and ep and ep in queued:
+                action = "duplicate"
+            elif skip is None:
+                # do_poll grabs one result per poll; the rest wait for later polls
+                action, picked = ("later" if picked else "grab"), True
+                if ep:
+                    queued.add(ep)
+            else:
+                action = skip
+            results.append({**r, "ep": ep, "action": action})
+        searches.append({"query": query, "tried": True, "results": results})
+    return {"searches": searches, "not_polled": not_polled}
+
+
 def do_poll():
     data    = load_data()
     changed = False
@@ -63,9 +154,7 @@ def do_poll():
         if entry.get("mode") == "complete":
             continue
 
-        title        = entry["title"]
-        search_title = entry.get("search_title") or title
-        season       = entry.get("season", 1)
+        title = entry["title"]
 
         if entry.get("airing_status") != "FINISHED":
             if refresh_mal(entry):
@@ -80,52 +169,41 @@ def do_poll():
         if entry.get("all_grabbed"):
             continue
 
-        log.info(f"Polling nyaa: {search_title} S{season:02d} (folder: {title})")
+        # Searches are tried in order; the next one only when this one grabs nothing
+        grabbed = False
+        for search in search_titles(entry):
+            query = _poll_query(entry, search)
+            log.info(f"Polling nyaa: {query} (folder: {title})")
 
-        query   = search_title if season == 1 else f"{search_title} S{season:02d}"
-        results = search_nyaa(query)
+            for r in search_nyaa(query):
+                key = r["link"]
+                dl_urls  = {d["url"] if isinstance(d, dict) else d for d in data["downloaded"]}
+                skip, ep = check_result(entry, r, dl_urls)
 
-        start_ep = entry.get("start_episode")
-        for r in results:
-            key = r["link"]
-            ep  = extract_episode_number(r["title"])
+                if skip == "on_disk":
+                    log.info(f"Episode {ep} already on disk for {title}, skipping")
+                    data["downloaded"].append(key)
+                    changed = True
+                    continue
+                if skip:
+                    continue
 
-            detected_season = extract_season(r["title"])
-            if detected_season and detected_season != season:
-                continue
-
-            # With start_episode set: skip anything with no parseable episode number
-            # (specials, movies, fan letters) AND anything below the threshold.
-            if start_ep and (ep is None or ep < start_ep):
-                continue
-
-            dl_urls = {d["url"] if isinstance(d, dict) else d for d in data["downloaded"]}
-            if key in dl_urls:
-                continue
-
-            s = detected_season or season
-            if ep and episode_exists_on_disk(title, s, ep):
-                log.info(f"Episode {ep} already on disk for {title}, skipping")
-                data["downloaded"].append(key)
-                changed = True
-                continue
-
-            if ep and any(g.get("ep") == ep for g in entry.get("episodes_grabbed", [])):
-                continue
-
-            ok = add_torrent(r["link"])
-            if ok:
-                data["downloaded"].append({"url": key, "title": r["title"], "date": str(datetime.now())})
-                entry.setdefault("episodes_grabbed", [])
-                entry["episodes_grabbed"].append({
-                    "ep":    ep,
-                    "title": r["title"],
-                    "date":  str(datetime.now()),
-                })
-                check_completion(entry, data)
-                changed = True
-                audio = {2: 'sub', 1: 'unknown', 0: 'dual'}.get(r.get('audio_score', 1), '?')
-                log.info(f"Queued {title} ep {ep} [{audio}]: {r['title'][:60]}")
+                ok = add_torrent(r["link"])
+                if ok:
+                    data["downloaded"].append({"url": key, "title": r["title"], "date": str(datetime.now())})
+                    entry.setdefault("episodes_grabbed", [])
+                    entry["episodes_grabbed"].append({
+                        "ep":    ep,
+                        "title": r["title"],
+                        "date":  str(datetime.now()),
+                    })
+                    check_completion(entry, data)
+                    changed = True
+                    audio = {2: 'sub', 1: 'unknown', 0: 'dual'}.get(r.get('audio_score', 1), '?')
+                    log.info(f"Queued {title} ep {ep} [{audio}]: {r['title'][:60]}")
+                    grabbed = True
+                    break
+            if grabbed:
                 break
 
     if changed:
@@ -149,28 +227,34 @@ def do_full_season(entry_id: int):
     if not entry:
         return {"ok": False, "error": "not found"}
 
-    title        = entry["title"]
-    search_title = entry.get("search_title") or title
-    season       = entry.get("season", 1)
-    log.info(f"Full season download: {title} S{season} (searching: {search_title})")
-
-    batches, episodes = search_nyaa_full(search_title, season)
+    title      = entry["title"]
+    season     = entry.get("season", 1)
+    start_ep   = entry.get("start_episode")
     queued     = 0
     used_batch = False
+    # Entries are dicts (grabbed) or bare URLs (older / already on disk): compare by URL
+    dl_urls    = {d["url"] if isinstance(d, dict) else d for d in data["downloaded"]}
 
-    for b in sorted(batches, key=lambda x: x["seeders"], reverse=True):
-        if b["link"] in data["downloaded"]:
-            continue
-        if add_torrent(b["link"]):
-            data["downloaded"].append({"url": b["link"], "title": b["title"], "date": str(datetime.now())})
-            entry.setdefault("episodes_grabbed", [])
-            entry["episodes_grabbed"].append({"ep": "batch", "title": b["title"], "date": str(datetime.now())})
-            queued += 1
-            used_batch = True
+    # Searches are tried in order; the next one only when this one queues nothing
+    for search in search_titles(entry):
+        if queued:
             break
+        log.info(f"Full season download: {title} S{season} (searching: {search})")
+        batches, episodes = search_nyaa_full(search, season)
 
-    start_ep = entry.get("start_episode")
-    if not used_batch:
+        for b in sorted(batches, key=lambda x: x["seeders"], reverse=True):
+            if b["link"] in dl_urls:
+                continue
+            if add_torrent(b["link"]):
+                data["downloaded"].append({"url": b["link"], "title": b["title"], "date": str(datetime.now())})
+                entry.setdefault("episodes_grabbed", [])
+                entry["episodes_grabbed"].append({"ep": "batch", "title": b["title"], "date": str(datetime.now())})
+                queued += 1
+                used_batch = True
+                break
+
+        if used_batch:
+            continue
         for r in episodes:
             ep = extract_episode_number(r["title"])
             s  = extract_season(r["title"]) or season
@@ -181,19 +265,21 @@ def do_full_season(entry_id: int):
 
             log.info(f"Full season candidate: ep={ep} s={s} title={r['title'][:60]}")
 
-            if r["link"] in data["downloaded"]:
+            if r["link"] in dl_urls:
                 log.info("  → skipping (already in downloaded list)")
                 continue
 
             if episode_exists_on_disk(title, s, ep):
                 log.info("  → skipping (already on disk)")
                 data["downloaded"].append(r["link"])
+                dl_urls.add(r["link"])
                 continue
 
             ok = add_torrent(r["link"])
             log.info(f"  → add_torrent result: {ok}")
             if ok:
-                data["downloaded"].append(r["link"])
+                data["downloaded"].append({"url": r["link"], "title": r["title"], "date": str(datetime.now())})
+                dl_urls.add(r["link"])
                 entry.setdefault("episodes_grabbed", [])
                 entry["episodes_grabbed"].append({
                     "ep": ep, "title": r["title"], "date": str(datetime.now()),

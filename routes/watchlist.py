@@ -12,7 +12,7 @@ from services.nyaa import search_nyaa_full, release_sort_key
 from services.metadata import inspect_series, strip_mkv_title
 from services.library import episode_exists_on_disk
 from services.torrents import add_torrent, client_name
-from services.poller import do_full_season
+from services.poller import do_full_season, preview_poll, search_titles, clean_search_titles
 from utils.parsing import extract_episode_number
 
 bp = Blueprint("watchlist", __name__)
@@ -38,11 +38,13 @@ def add_anime():
 
     start_ep_raw = body.get("start_episode")
     start_ep = int(start_ep_raw) if start_ep_raw and str(start_ep_raw).strip() else None
+    searches = clean_search_titles(body.get("search_titles") or [body.get("search_title", "")], title)
 
     entry = {
         "id":               int(time.time() * 1000),
         "title":            title,
-        "search_title":     body.get("search_title", "").strip() or title,
+        "search_title":     searches[0],
+        "search_titles":    searches,
         "season":           season_num,
         "active":           True,
         "mode":             body.get("mode", "ongoing"),
@@ -81,6 +83,10 @@ def toggle_anime(entry_id):
                 e["all_grabbed"] = False
             elif "start_episode" in body:
                 e["start_episode"] = int(body["start_episode"]) if body["start_episode"] else None
+            elif "search_titles" in body:
+                # search_title stays the first one, for anything that still reads it
+                e["search_titles"] = clean_search_titles(body["search_titles"], e["title"])
+                e["search_title"]  = e["search_titles"][0]
             else:
                 e["active"] = not e.get("active", True)
             save_data(data)
@@ -96,6 +102,14 @@ def delete_anime(entry_id):
     return jsonify({"ok": True})
 
 
+@bp.route("/api/watchlist/<int:entry_id>/poll-preview", methods=["GET"])
+def poll_preview(entry_id):
+    entry = next((e for e in load_data()["watchlist"] if e["id"] == entry_id), None)
+    if not entry:
+        return jsonify({"error": "not found"}), 404
+    return jsonify({"title": entry["title"], "season": entry.get("season", 1), **preview_poll(entry)})
+
+
 @bp.route("/api/watchlist/<int:entry_id>/full-season", methods=["POST"])
 def full_season(entry_id):
     data  = load_data()
@@ -103,11 +117,14 @@ def full_season(entry_id):
     if not entry:
         return jsonify({"error": "not found"}), 404
     if entry.get("manual_pick"):
-        title        = entry["title"]
-        search_title = entry.get("search_title") or title
-        season       = entry.get("season", 1)
-        batches, episodes = search_nyaa_full(search_title, season)
-        candidates = sorted(batches + episodes, key=release_sort_key, reverse=True)[:10]
+        season = entry.get("season", 1)
+        # Offer the best releases across every search, each torrent once
+        found  = {}
+        for search in search_titles(entry):
+            batches, episodes = search_nyaa_full(search, season)
+            for r in batches + episodes:
+                found.setdefault(r["link"], r)
+        candidates = sorted(found.values(), key=release_sort_key, reverse=True)[:10]
         return jsonify({"ok": True, "manual": True, "candidates": candidates})
     threading.Thread(target=lambda: do_full_season(entry_id), daemon=True).start()
     return jsonify({"ok": True, "message": "Full season search started"})

@@ -47,11 +47,19 @@ async function loadWatchlist() {
   renderWatchlist(list);
 }
 
+// Folder watcher (moves completed downloads into the library), as of the last status fetch
+let watcherState = null;
+let watcherRefetch = null;
+
 async function loadStatus() {
   try {
     const d = await api.status();
     document.getElementById('headerStats').innerHTML =
-      `<span><b>${d.downloaded}</b> grabbed</span><span><b>${d.renamed}</b> renamed</span>`;
+      `<span><b>${d.downloaded}</b> grabbed</span><span><b>${d.renamed}</b> renamed</span>` +
+      `<span id="watcherNext"></span>`;
+    // offset = server clock - this browser's clock, so the countdown matches the server
+    watcherState = { ...d.watcher, offset: d.watcher.now - Date.now() / 1000 };
+    renderWatcher();
     const badge = document.getElementById('bellBadge');
     if (d.unread_notifications > 0) {
       badge.style.display = 'flex';
@@ -62,7 +70,28 @@ async function loadStatus() {
   } catch {}
 }
 
+// Called every second: counts down to the watcher's next pass
+function renderWatcher() {
+  const el = document.getElementById('watcherNext');
+  if (!el || !watcherState) return;
+  const w = watcherState;
+  el.title = 'Moves finished downloads into the library' +
+    (w.last_run ? ` · last run ${new Date((w.last_run - w.offset) * 1000).toLocaleTimeString()}` : '');
+  const left = w.next_run ? Math.round(w.next_run - (Date.now() / 1000 + w.offset)) : 0;
+  if (w.running || left <= 0) {
+    el.innerHTML = '<b>moving files…</b>';
+    // Fetch again shortly to pick up the next run time once the pass is done
+    if (!watcherRefetch) watcherRefetch = setTimeout(() => { watcherRefetch = null; loadStatus(); }, 2000);
+    return;
+  }
+  const m = Math.floor(left / 60), s = String(left % 60).padStart(2, '0');
+  el.innerHTML = `next move in <b>${m}:${s}</b>`;
+}
+
+let watchlistById = {};
+
 function renderWatchlist(list) {
+  watchlistById = Object.fromEntries(list.map(e => [e.id, e]));
   document.getElementById('countBadge').textContent = `${list.length} series`;
   const el = document.getElementById('watchlist');
   if (!list.length) {
@@ -94,38 +123,144 @@ function renderWatchlist(list) {
       ? `<span style="color:var(--yellow);cursor:pointer" title="Start episode — click to change" onclick="editStartEp(${e.id},${e.start_episode})">▶ from Ep ${e.start_episode}</span>`
       : `<span style="color:var(--muted);cursor:pointer;font-size:.72rem" title="Set start episode (skip older eps)" onclick="editStartEp(${e.id},null)">+ start ep</span>`;
 
+    const searches   = searchTitlesOf(e);
+    const searchHtml = searches.length > 1 || searches[0] !== e.title
+      ? `<span style="color:var(--muted);cursor:pointer" title="Nyaa searches, tried in order:\n${escHtml(searches.join('\n'))}\n\nClick to edit" onclick="openSearchEditor(${e.id})">🔍 ${escHtml(searches[0])}${searches.length > 1 ? ` <b>+${searches.length - 1}</b>` : ''}</span>`
+      : '';
+
+    const menuOpen = openCardMenuId === e.id;
+
     return `
-    <div class="anime-card ${cardClass}" id="card-${e.id}">
+    <div class="anime-card ${cardClass} ${menuOpen ? 'menu-open' : ''}" id="card-${e.id}">
       <div class="card-top">
         <div class="status-dot"></div>
-        <div class="card-body">
-          <div class="card-title">${escHtml(e.title)}</div>
-          <div class="card-meta">
-            <span>Season ${e.season}</span>
-            ${airingBadge}
-            ${modeLabel}
-            ${last && last.ep !== 'batch' ? `<span>Last: Ep ${last.ep ?? '?'}</span>` : ''}
-            ${e.search_title && e.search_title !== e.title ? `<span style="color:var(--muted)">🔍 ${escHtml(e.search_title)}</span>` : ''}
-            ${startEpHtml}
-            ${isDone ? `<span style="color:var(--green)">✓ All grabbed</span>` : ''}
-          </div>
-        </div>
+        <div class="card-title" title="${escHtml(e.title)}">${escHtml(e.title)}</div>
         <div class="ep-pill" title="Click to override episode count" style="cursor:pointer" onclick="editEpCount(${e.id}, ${total || 'null'})">${grabbed}${total ? '/' + total : ''} eps</div>
-        <div class="card-actions">
-          <button class="btn-icon" title="Inspect MKV metadata" onclick="openMetaInspector(${e.id})" style="font-size:.75rem">🔍 Meta</button>
-          <button class="btn-icon season" id="fs-${e.id}" title="Backfill full season" onclick="fullSeason(${e.id})">⬇ Full</button>
-          <button class="btn-icon ${e.manual_pick ? 'manual-on' : ''}" title="${e.manual_pick ? 'Manual pick ON' : 'Manual pick OFF'}" onclick="toggleManualPick(${e.id})" style="font-size:.7rem;padding:0 .5rem">🎯${e.manual_pick ? 'ON' : 'OFF'}</button>
-          <button class="btn-icon ${liveScanIds.has(e.id) ? 'active-scan' : ''}" id="ls-${e.id}" title="Toggle live disk scan (every 60s)" onclick="toggleLiveScan(${e.id})" style="${liveScanIds.has(e.id) ? 'color:var(--green);border-color:var(--green)' : ''}">⟳ Live</button>
-          <button class="btn-icon" title="Scan disk and update episode count" onclick="scanDisk(${e.id})" style="color:var(--muted)">⟳</button>
-          <button class="btn-icon" title="Reset download history (re-grab missing eps)" onclick="resetHistory(${e.id})" style="color:var(--muted)">↺</button>
-          <button class="btn-icon" title="${e.active ? 'Pause' : 'Resume'}" onclick="toggleAnime(${e.id})">${e.active ? '⏸' : '▶'}</button>
-          <button class="btn-icon danger" title="Remove" onclick="deleteAnime(${e.id})">✕</button>
-        </div>
+      </div>
+      <div class="card-meta">
+        <span>Season ${e.season}</span>
+        ${airingBadge}
+        ${modeLabel}
+        ${last && last.ep !== 'batch' ? `<span>Last: Ep ${last.ep ?? '?'}</span>` : ''}
+        ${searchHtml}
+        ${startEpHtml}
+        ${isDone ? `<span style="color:var(--green)">✓ All grabbed</span>` : ''}
       </div>
       ${progressHtml}
+      <div class="card-actions">
+        <button class="btn-icon" title="${e.active ? 'Pause' : 'Resume'}" onclick="toggleAnime(${e.id})">${e.active ? '⏸' : '▶'}</button>
+        <button class="btn-icon ${liveScanIds.has(e.id) ? 'active-scan' : ''}" id="ls-${e.id}" title="Toggle live disk scan (every 60s)" onclick="toggleLiveScan(${e.id})" style="${liveScanIds.has(e.id) ? 'color:var(--green);border-color:var(--green)' : ''}">⟳ Live</button>
+        <button class="btn-icon ${e.manual_pick ? 'manual-on' : ''}" title="${e.manual_pick ? 'Manual pick ON' : 'Manual pick OFF'}" onclick="toggleManualPick(${e.id})" style="font-size:.7rem;padding:0 .5rem">🎯${e.manual_pick ? 'ON' : 'OFF'}</button>
+        <div class="card-menu ${menuOpen ? 'open' : ''}">
+          <button class="btn-icon" title="More actions" aria-haspopup="menu" aria-expanded="${menuOpen}" onclick="toggleCardMenu(event, ${e.id})">⋯ More ▾</button>
+          <div class="card-menu-list" role="menu">
+            <button role="menuitem" title="See what a poll would find and grab right now (grabs nothing)" onclick="closeCardMenu();openPollPreview(${e.id})">👁 Test poll</button>
+            <button role="menuitem" title="The nyaa searches a poll tries, in order" onclick="closeCardMenu();openSearchEditor(${e.id})">🔍 Nyaa searches…</button>
+            <button role="menuitem" onclick="closeCardMenu();openMetaInspector(${e.id})">🔍 Inspect MKV metadata</button>
+            <button role="menuitem" id="fs-${e.id}" onclick="closeCardMenu();fullSeason(${e.id})">⬇ Backfill full season</button>
+            <button role="menuitem" onclick="closeCardMenu();scanDisk(${e.id})">⟳ Scan disk</button>
+            <button role="menuitem" onclick="closeCardMenu();resetHistory(${e.id})">↺ Reset download history</button>
+          </div>
+        </div>
+        <button class="btn-icon danger push-right" title="Remove" onclick="deleteAnime(${e.id})">✕</button>
+      </div>
     </div>`;
   }).join('');
 }
+
+// "More" dropdown on a card. Its id is kept so the 30s auto-refresh doesn't close it.
+let openCardMenuId = null;
+
+function toggleCardMenu(event, id) {
+  event.stopPropagation();
+  const wasOpen = openCardMenuId === id;
+  closeCardMenu();
+  if (wasOpen) return;
+  openCardMenuId = id;
+  const card = document.getElementById(`card-${id}`);
+  card.classList.add('menu-open');
+  card.querySelector('.card-menu').classList.add('open');
+  card.querySelector('.card-menu > .btn-icon').setAttribute('aria-expanded', 'true');
+}
+
+function closeCardMenu() {
+  openCardMenuId = null;
+  document.querySelectorAll('.anime-card.menu-open').forEach(card => {
+    card.classList.remove('menu-open');
+    card.querySelector('.card-menu').classList.remove('open');
+    card.querySelector('.card-menu > .btn-icon').setAttribute('aria-expanded', 'false');
+  });
+}
+
+document.addEventListener('click', e => { if (!e.target.closest('.card-menu')) closeCardMenu(); });
+
+// Nyaa searches: tried top to bottom, the next only when the ones above find nothing to grab.
+// Older entries only have search_title.
+function searchTitlesOf(e) {
+  return e.search_titles?.length ? e.search_titles : [e.search_title || e.title];
+}
+
+let _searchEditId = null;
+
+function openSearchEditor(id) {
+  const e = watchlistById[id];
+  if (!e) return;
+  _searchEditId = id;
+  document.getElementById('searchModalTitle').textContent = `${e.title} · Season ${e.season}`;
+  renderSearchRows(searchTitlesOf(e));
+  document.getElementById('searchModal').classList.add('open');
+}
+
+function closeSearchEditor() {
+  document.getElementById('searchModal').classList.remove('open');
+  _searchEditId = null;
+}
+
+function currentSearchRows() {
+  return [...document.querySelectorAll('#searchRows input')].map(i => i.value);
+}
+
+function renderSearchRows(titles) {
+  const last = titles.length - 1;
+  document.getElementById('searchRows').innerHTML = titles.map((t, i) => `
+    <div class="search-row">
+      <span class="search-num">${i + 1}</span>
+      <input type="text" value="${escHtml(t)}" placeholder="nyaa search text" autocomplete="off"
+             onkeydown="if(event.key==='Enter') saveSearches()"/>
+      <button class="btn-icon" title="Try earlier" onclick="moveSearchRow(${i}, -1)" ${i === 0 ? 'disabled' : ''}>↑</button>
+      <button class="btn-icon" title="Try later" onclick="moveSearchRow(${i}, 1)" ${i === last ? 'disabled' : ''}>↓</button>
+      <button class="btn-icon danger" title="Remove" onclick="removeSearchRow(${i})">✕</button>
+    </div>`).join('');
+}
+
+function addSearchRow() {
+  renderSearchRows([...currentSearchRows(), '']);
+  const inputs = document.querySelectorAll('#searchRows input');
+  inputs[inputs.length - 1].focus();
+}
+
+function moveSearchRow(i, delta) {
+  const t = currentSearchRows();
+  [t[i], t[i + delta]] = [t[i + delta], t[i]];
+  renderSearchRows(t);
+}
+
+function removeSearchRow(i) {
+  const t = currentSearchRows();
+  t.splice(i, 1);
+  renderSearchRows(t.length ? t : ['']);
+}
+
+async function saveSearches() {
+  if (!_searchEditId) return;
+  const res = await api.watchlist.patch(_searchEditId, { search_titles: currentSearchRows() });
+  if (!res.ok) { toast('Could not save searches', 'error'); return; }
+  const e = await res.json();
+  toast(`Saved ${e.search_titles.length} search${e.search_titles.length === 1 ? '' : 'es'}`, 'success');
+  closeSearchEditor();
+  loadWatchlist();
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCardMenu(); });
 
 // CRUD actions
 async function addAnime() {
@@ -139,7 +274,8 @@ async function addAnime() {
     title,
     season,
     mode:          selectedMode,
-    search_title:  document.getElementById('searchTitleInput').value.trim() || title,
+    // Several searches can be typed separated by |; the server drops blanks and falls back to the title
+    search_titles: document.getElementById('searchTitleInput').value.split('|'),
     start_episode: startEp,
   });
   if (res.ok) {
@@ -152,7 +288,8 @@ async function addAnime() {
     setMode('ongoing');
     hideSearch();
     let addMsg = `Added "${title}"${entry.total_episodes ? ' — ' + entry.total_episodes + ' eps' : ''}`;
-    if (entry.search_title && entry.search_title !== title) addMsg += ` · Nyaa: "${entry.search_title}"`;
+    const searches = searchTitlesOf(entry);
+    if (searches.length > 1 || searches[0] !== title) addMsg += ` · Nyaa: "${searches.join('", "')}"`;
     toast(addMsg, 'success');
     loadWatchlist();
     loadStatus();

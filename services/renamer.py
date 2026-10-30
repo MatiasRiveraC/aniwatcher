@@ -46,27 +46,85 @@ def _season_from_folder(folder_name: str):
     return None
 
 
+# Words that say nothing about which show a file is: English/Japanese filler and season wording
+_FILLER_WORDS = {"the", "an", "of", "and", "to", "in", "on", "no", "wa", "ga", "ni", "wo", "de",
+                 "season", "part", "cour"}
+
+
+def _words(text: str) -> list:
+    return [w for w in re.split(r'[^0-9a-z]+', text.lower()) if w]
+
+
+def _key_words(name: str) -> set:
+    """The words of a show name that must all appear in a filename for it to match."""
+    return {w for w in _words(name)
+            if len(w) > 1 and w not in _FILLER_WORDS and not re.fullmatch(r'\d+(st|nd|rd|th)', w)}
+
+
 def find_series_for_file(filename: str, watchlist: list):
-    fname_lower = filename.lower()
-    best, best_score = None, 0
+    """Pick the watchlist entry a file belongs to. One of the entry's names (folder title,
+    MAL English/romaji titles, nyaa searches) must have all its key words in the filename
+    as whole words; when several entries match, the most specific name wins."""
+    file_words = set(_words(filename))
+    best, best_name, best_score = None, "", 0
     for entry in watchlist:
-        candidate_titles = set(filter(None, [
-            entry["title"],
-            entry.get("title_english", ""),
-            entry.get("title_romaji", ""),
-        ]))
-        score = 0
-        for t in candidate_titles:
-            words = [w for w in re.split(r'\W+', t.lower()) if len(w) > 2]
-            s = sum(1 for w in words if w in fname_lower)
-            score = max(score, s)
-        if score > best_score:
-            best_score = score
-            best = entry
-    if best and best_score > 0:
-        log.info(f"Matched '{filename}' → '{best['title']}' (score {best_score})")
+        names = [entry["title"], entry.get("title_english", ""), entry.get("title_romaji", ""),
+                 entry.get("search_title", ""), *(entry.get("search_titles") or [])]
+        for name in filter(None, names):
+            key = _key_words(name)
+            if key and key <= file_words and len(key) > best_score:
+                best, best_name, best_score = entry, name, len(key)
+    if best:
+        log.info(f"Matched '{filename}' → '{best['title']}' (via '{best_name}')")
         return best["title"], best.get("season", 1)
     return None, 1
+
+
+_remove_failed = set()  # sources whose delete error was already logged
+
+# Shown in the web page: epoch seconds of the last finished pass and the next one
+watcher_state = {"running": False, "last_run": None, "next_run": None}
+
+
+def _remove_source(src: str) -> bool:
+    """Delete a completed file that is already in the library. True once it's gone."""
+    try:
+        os.remove(src)
+        log.info(f"Removed source: {src}")
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        # Log once per file; the watcher retries on every pass
+        if src not in _remove_failed:
+            log.error(f"In library but could not remove source {src}: {e}")
+            _remove_failed.add(src)
+        return False
+    _remove_failed.discard(src)
+    return True
+
+
+def _copy_contents(src: str, dst: str):
+    """Copy the file's data and, when allowed, its timestamps. Not shutil.copy2: on a
+    TrueNAS dataset with an SMB/NFSv4 ACL its chmod and xattr copy fail with EPERM, and
+    the file should take its permissions from the library folder's ACL anyway."""
+    shutil.copyfile(src, dst)
+    try:
+        st = os.stat(src)
+        os.utime(dst, ns=(st.st_atime_ns, st.st_mtime_ns))
+    except OSError:
+        pass
+
+
+def _torrent_dir(root: str, top: str, season_from_folder):
+    """The folder a torrent created under `top`, or None for files directly in it."""
+    if root == top:
+        return None
+    # Inside a Season N subfolder, clean the torrent dir (grandparent) rather than the season subdir
+    if season_from_folder is not None:
+        gp = os.path.dirname(root)
+        if gp != top:
+            return gp
+    return root
 
 
 def watch_completed_folder():
@@ -74,6 +132,7 @@ def watch_completed_folder():
     while True:
         settings     = get_settings()
         TORRENT_DONE = settings.get("torrent_done", "/downloads/completed")
+        watcher_state["running"] = True
         try:
             if os.path.isdir(TORRENT_DONE):
                 data, changed = load_data(), False
@@ -85,12 +144,14 @@ def watch_completed_folder():
                         if ext not in VIDEO_EXTS:
                             continue
                         src = os.path.join(root, fname)
-                        if src in data.get("renamed", []):
-                            continue
-
                         parent_folder = os.path.basename(root) if root != TORRENT_DONE else ""
                         # Detect "Season N" / "S01" intermediate folder
                         season_from_folder = _season_from_folder(parent_folder) if parent_folder else None
+                        torrent_dir = _torrent_dir(root, TORRENT_DONE, season_from_folder)
+                        # Seen on an earlier pass but still here: its delete failed, so go
+                        # through the flow again (dest exists → retry the delete)
+                        already = src in data.get("renamed", [])
+
                         grandparent_folder = ""
                         if season_from_folder is not None and root != TORRENT_DONE:
                             gp = os.path.dirname(root)
@@ -111,7 +172,8 @@ def watch_completed_folder():
                                     log.info(f"Matched via folder name '{parent_folder}' → '{series_name}'")
 
                         if not series_name:
-                            log.info(f"No watchlist match for: {fname} (folder: {parent_folder})")
+                            if not already:
+                                log.info(f"No watchlist match for: {fname} (folder: {parent_folder})")
                             continue
 
                         parsed_season, episode = parse_episode_info(fname)
@@ -131,44 +193,33 @@ def watch_completed_folder():
                         dest         = os.path.join(dest_dir, new_fname)
 
                         if os.path.exists(dest):
-                            log.info(f"Already exists at dest, skipping: {new_fname}")
-                            data["renamed"].append(src)
-                            changed = True
-                            if root != TORRENT_DONE:
-                                if season_from_folder is not None:
-                                    gp = os.path.dirname(root)
-                                    dirs_to_clean.add(gp if gp != TORRENT_DONE else root)
-                                else:
-                                    dirs_to_clean.add(root)
-                            continue
+                            if not already:
+                                log.info(f"Already exists at dest, removing source: {new_fname}")
+                        else:
+                            # Copy under a temp name so a failed copy never leaves a
+                            # partial file at dest that a later pass would trust
+                            tmp = dest + ".part"
+                            try:
+                                _copy_contents(src, tmp)
+                                os.replace(tmp, dest)
+                            except Exception as e:
+                                log.error(f"Copy failed {src}: {e}")
+                                try:
+                                    os.remove(tmp)
+                                except OSError:
+                                    pass
+                                continue
+                            log.info(f"Copied+renamed: {fname} → {new_fname}")
+                            if settings.get("auto_clean_metadata", True):
+                                strip_mkv_title(dest)
 
-                        try:
-                            if os.path.exists(dest):
-                                log.info(f"Dest exists, removing src: {fname}")
-                                os.remove(src)
-                            else:
-                                shutil.copy2(src, dest)
-                                log.info(f"Copied+renamed: {fname} → {new_fname}")
-                                if settings.get("auto_clean_metadata", True):
-                                    strip_mkv_title(dest)
-                                # Explicitly remove source after successful copy
-                                os.remove(src)
-                                log.info(f"Removed source: {src}")
+                        # The episode is in the library now: record it so a failed delete
+                        # below is retried on the next pass instead of being forgotten
+                        if not already:
                             data["renamed"].append(src)
                             changed = True
-                            if root != TORRENT_DONE:
-                                # If we're inside a Season N subfolder, clean the parent
-                                # torrent dir (grandparent) rather than just the season subdir
-                                if season_from_folder is not None:
-                                    gp = os.path.dirname(root)
-                                    if gp != TORRENT_DONE:
-                                        dirs_to_clean.add(gp)
-                                    else:
-                                        dirs_to_clean.add(root)
-                                else:
-                                    dirs_to_clean.add(root)
-                        except Exception as e:
-                            log.error(f"Move failed {src}: {e}")
+                        if _remove_source(src) and torrent_dir:
+                            dirs_to_clean.add(torrent_dir)
 
                 for d in dirs_to_clean:
                     try:
@@ -197,4 +248,7 @@ def watch_completed_folder():
                     save_data(data)
         except Exception as e:
             log.error(f"Watcher error: {e}")
-        time.sleep(settings.get("watch_interval", 60))
+        interval = settings.get("watch_interval", 60)
+        now      = time.time()
+        watcher_state.update(running=False, last_run=now, next_run=now + interval)
+        time.sleep(interval)

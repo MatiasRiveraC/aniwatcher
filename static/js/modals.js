@@ -68,6 +68,72 @@ function closePicker() {
   _pickEntryId = null;
 }
 
+// Poll preview modal: what a poll would do for one series right now (grabs nothing)
+const POLL_ACTIONS = {
+  grab:       ['Would grab',         'var(--green)'],
+  later:      ['Later poll',         'var(--blue)'],
+  duplicate:  ['Same ep as above',   'var(--muted)'],
+  downloaded: ['Already downloaded', 'var(--muted)'],
+  on_disk:    ['Already on disk',    'var(--muted)'],
+  grabbed:    ['Episode grabbed',    'var(--muted)'],
+  season:     ['Other season',       'var(--muted)'],
+  start_ep:   ['Before start ep',    'var(--muted)'],
+};
+
+async function openPollPreview(id) {
+  document.getElementById('pollModal').classList.add('open');
+  document.getElementById('pollModalTitle').textContent = '';
+  const body = document.getElementById('pollModalBody');
+  body.innerHTML = '<div class="modal-empty">Searching nyaa…</div>';
+  let d;
+  try {
+    d = await api.watchlist.pollPreview(id);
+  } catch {
+    body.innerHTML = '<div class="modal-empty">Could not reach nyaa or the server</div>';
+    return;
+  }
+  if (d.error) { body.innerHTML = `<div class="modal-empty">${escHtml(d.error)}</div>`; return; }
+  document.getElementById('pollModalTitle').textContent = `${d.title} · Season ${d.season}`;
+
+  const grabIn = d.searches.findIndex(s => s.results.some(r => r.action === 'grab'));
+  const grab   = grabIn >= 0 ? d.searches[grabIn].results.find(r => r.action === 'grab') : null;
+  const many   = d.searches.length > 1;
+  const summary = d.not_polled
+    ? `<div class="meta-summary dirty">${escHtml(d.not_polled)}</div>`
+    : grab
+      ? `<div class="meta-summary ok">Next poll grabs${many ? ` (search ${grabIn + 1})` : ''}: <b>${escHtml(grab.title)}</b></div>`
+      : `<div class="meta-summary dirty">Nothing new: the next poll grabs nothing${many ? ` from any of the ${d.searches.length} searches` : ''}.</div>`;
+  const intro = `<div style="font-size:.8rem;color:var(--muted)">
+      Results best first, only your preferred resolution; one grab per poll${many ? ', searches tried in order' : ''}.</div>`;
+
+  const sections = d.searches.map((s, i) => {
+    const head = `<div class="modal-section-title">${many ? `${i + 1}. ` : ''}“${escHtml(s.query)}”${s.tried ? ` · ${s.results.length} result${s.results.length === 1 ? '' : 's'}` : ''}</div>`;
+    if (!s.tried) return head + '<div style="font-size:.8rem;color:var(--muted)">Not tried: an earlier search already has something to grab.</div>';
+    return head + (_pollRows(s.results) || '<div style="font-size:.8rem;color:var(--muted)">nyaa returned no results</div>');
+  }).join('');
+
+  body.innerHTML = summary + intro + sections;
+}
+
+function _pollRows(results) {
+  return results.map(r => {
+    const [label, color] = POLL_ACTIONS[r.action] || [r.action, 'var(--muted)'];
+    const audio = r.audio_score === 3 ? '★ preferred' : r.audio_score === 0 ? '⚠ dub' : 'subbed';
+    return `
+      <div class="modal-item" style="flex-wrap:wrap;${['grab', 'later'].includes(r.action) ? '' : 'opacity:.6'}">
+        <span style="flex-shrink:0;min-width:8.5rem;font-size:.72rem;font-weight:600;color:${color}">${label}</span>
+        <span class="modal-item-name" title="${escHtml(r.title)}">
+          <a href="${escHtml(r.link)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${escHtml(r.title)}</a>
+        </span>
+        <span class="modal-item-meta">${r.ep != null ? 'Ep ' + r.ep + ' · ' : ''}${escHtml(r.size || '?')} · ▲ ${r.seeders} · ${audio}</span>
+      </div>`;
+  }).join('');
+}
+
+function closePollModal() {
+  document.getElementById('pollModal').classList.remove('open');
+}
+
 // Completed files modal
 async function openCompletedModal() {
   document.getElementById('completedModal').classList.add('open');
