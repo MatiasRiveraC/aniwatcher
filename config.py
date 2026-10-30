@@ -36,6 +36,9 @@ TORRENT_INCOMING = os.getenv("TORRENT_INCOMING", "/downloads/incoming")
 LOCK_PATHS     = _bool("LOCK_PATHS")
 POLL_INTERVAL  = int(os.getenv("POLL_INTERVAL", "900"))
 WATCH_INTERVAL = int(os.getenv("WATCH_INTERVAL", "60"))
+# MB/s cap for copying finished files into the library (0 = no cap). Only used when
+# a move cannot be a rename (another disk, or another mount).
+COPY_LIMIT_MBPS = int(os.getenv("COPY_LIMIT_MBPS", "0"))
 DATA_FILE      = "/data/watchlist.json"
 
 MAL_API       = "https://api.myanimelist.net/v2"

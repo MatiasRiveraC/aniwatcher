@@ -16,6 +16,17 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN mkdir -p /data && chown -R ${PUID}:${PGID} /app /data
 
+# Optional, for instant moves into the library. Two bind mounts are two mounts even
+# when they are folders of one host disk, and a rename between them fails, so every
+# finished file is copied. Instead, mount their common host parent once and link the
+# paths the app (and the torrent client) use into it, e.g. with /srv mounted at /srv:
+#   --build-arg PATH_LINKS="/downloads=/srv/qbittorrent/downloads /media/tv=/srv/media/tv"
+# Space-separated path=target pairs; empty (the default) creates none.
+ARG PATH_LINKS=""
+RUN for l in $PATH_LINKS; do \
+      mkdir -p "$(dirname "${l%%=*}")" && ln -s "${l#*=}" "${l%%=*}"; \
+    done
+
 USER ${PUID}
 
 EXPOSE 5000

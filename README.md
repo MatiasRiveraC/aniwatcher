@@ -138,7 +138,32 @@ These values come from environment variables (`.env`). Most of them can also be 
 | `PUID` / `PGID`  | `568`                  | User/group the container runs as (Docker Compose) |
 | `POLL_INTERVAL`  | `900`                  | Seconds between nyaa.si polls                 |
 | `WATCH_INTERVAL` | `60`                   | Seconds between completed-folder scans        |
+| `COPY_LIMIT_MBPS` | `0`                   | MB/s cap when a finished file has to be copied into the library (0 = none); see below |
 | `WEB_PORT`       | `5000`                 | Host port for the web UI (Docker Compose only) |
+
+### Moving files into the library
+
+Finished files are **renamed** into the library when the completed folder and
+`ANIME_BASE` are on the same mount: instant, whatever the size. When they are
+not, each file is copied (under a `.part` name) and the original deleted, which
+for a Blu-ray batch is many GB of disk traffic. `COPY_LIMIT_MBPS` (also in
+Settings) caps that copy so the disk stays usable for streaming meanwhile.
+
+In Docker, two bind mounts are two mounts even when both are folders of one
+host disk, so the default compose file always copies. To get renames, mount
+their common host folder once and build with `PATH_LINKS`, which links the
+paths the app uses into it (the paths must stay what the torrent client sees):
+
+```yaml
+    build:
+      args:
+        PATH_LINKS: "/downloads=/srv/qbittorrent/downloads /media/tv=/srv/media/tv"
+    volumes:
+      - /srv:/srv        # instead of the two folders
+```
+
+The container can then reach everything under that folder, so pick the
+narrowest one that holds both.
 
 ## Project structure
 

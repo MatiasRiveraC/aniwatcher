@@ -142,6 +142,11 @@
             <input type="number" id="s_watch_interval" name="watch_interval" min="10" max="3600"/>
             <span class="settings-hint">How often to scan the completed folder for renames.</span>
           </div>
+          <div class="settings-field">
+            <label for="s_copy_limit_mbps">Copy speed limit (MB/s)</label>
+            <input type="number" id="s_copy_limit_mbps" name="copy_limit_mbps" min="0" max="10000"/>
+            <span class="settings-hint">Finished files are moved into the library instantly when the completed folder and the library are on the same mount. When they aren't, they are copied: cap the copy so the disk stays usable for streaming meanwhile. 0 = no limit.</span>
+          </div>
         </div>
       </div>
 

@@ -12,7 +12,7 @@ function showClientFields(client) {
 function populateSettings(s) {
   const fields = [
     'preferred_resolution', 'preferred_groups',
-    'poll_interval', 'watch_interval',
+    'poll_interval', 'watch_interval', 'copy_limit_mbps',
     'anime_base', 'torrent_done', 'torrent_incoming',
     'torrent_client',
     'deluge_host', 'deluge_port', 'deluge_user', 'deluge_pass',

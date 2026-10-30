@@ -3,7 +3,7 @@ import json
 import logging
 
 from config import DATA_FILE, DELUGE_HOST, DELUGE_PORT, DELUGE_USER, DELUGE_PASS, \
-    ANIME_BASE, TORRENT_DONE, POLL_INTERVAL, WATCH_INTERVAL, MAL_CLIENT_ID, \
+    ANIME_BASE, TORRENT_DONE, POLL_INTERVAL, WATCH_INTERVAL, COPY_LIMIT_MBPS, MAL_CLIENT_ID, \
     TORRENT_CLIENT, QBIT_URL, QBIT_USER, QBIT_PASS, QBIT_CATEGORY, QBIT_STOP_SEEDING, \
     TORRENT_INCOMING, LOCK_PATHS
 
@@ -16,6 +16,7 @@ DEFAULT_SETTINGS = {
     "preferred_groups":     "SubsPlease,Erai-raws,NC-Raws,EMBER",
     "poll_interval":        POLL_INTERVAL,
     "watch_interval":       WATCH_INTERVAL,
+    "copy_limit_mbps":      COPY_LIMIT_MBPS,
     "anime_base":           ANIME_BASE,
     "torrent_done":         TORRENT_DONE,
     "torrent_incoming":     TORRENT_INCOMING,
