@@ -8,7 +8,7 @@ from flask import Blueprint, request, jsonify, current_app
 
 from data import load_data, save_data, get_settings
 from services.mal import fetch_mal_info
-from services.nyaa import search_nyaa_full, release_sort_key
+from services.nyaa import search_entry
 from services.metadata import inspect_series, strip_mkv_title
 from services.library import episode_exists_on_disk
 from services.torrents import add_torrent, client_name
@@ -64,6 +64,7 @@ def add_anime():
         entry["anilist_parts"]  = info.get("parts", [])
         entry["title_romaji"]   = info.get("title_romaji", "")
         entry["title_english"]  = info.get("title_english", "")
+        entry["title_synonyms"] = info.get("title_synonyms", [])
 
     data["watchlist"].append(entry)
     save_data(data)
@@ -103,12 +104,10 @@ def full_season(entry_id):
     if not entry:
         return jsonify({"error": "not found"}), 404
     if entry.get("manual_pick"):
-        title        = entry["title"]
-        search_title = entry.get("search_title") or title
-        season       = entry.get("season", 1)
-        batches, episodes = search_nyaa_full(search_title, season)
-        candidates = sorted(batches + episodes, key=release_sort_key, reverse=True)[:10]
-        return jsonify({"ok": True, "manual": True, "candidates": candidates})
+        # Batches that cover the season first, then single episodes in order.
+        batches, episodes = search_entry(entry)
+        return jsonify({"ok": True, "manual": True, "candidates": batches[:15] + episodes,
+                        "total_episodes": entry.get("total_episodes")})
     threading.Thread(target=lambda: do_full_season(entry_id), daemon=True).start()
     return jsonify({"ok": True, "message": "Full season search started"})
 

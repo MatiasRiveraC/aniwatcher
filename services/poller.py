@@ -7,7 +7,7 @@ from datetime import datetime
 from data import get_settings
 from data import load_data, save_data
 from services.mal import refresh_mal
-from services.nyaa import search_nyaa, search_nyaa_full, release_sort_key
+from services.nyaa import search_nyaa, search_entry
 from services.library import episode_exists_on_disk
 from services.torrents import add_torrent
 from utils.parsing import extract_episode_number, extract_season
@@ -149,57 +149,52 @@ def do_full_season(entry_id: int):
     if not entry:
         return {"ok": False, "error": "not found"}
 
-    title        = entry["title"]
-    search_title = entry.get("search_title") or title
-    season       = entry.get("season", 1)
-    log.info(f"Full season download: {title} S{season} (searching: {search_title})")
+    title  = entry["title"]
+    season = entry.get("season", 1)
+    log.info(f"Full season download: {title} S{season}")
 
-    batches, episodes = search_nyaa_full(search_title, season)
+    batches, episodes = search_entry(entry)
+    dl_urls    = {d["url"] if isinstance(d, dict) else d for d in data["downloaded"]}
     queued     = 0
     used_batch = False
 
-    for b in sorted(batches, key=lambda x: x["seeders"], reverse=True):
-        if b["link"] in data["downloaded"]:
+    # A batch only if it is known to cover the season, or might (no episode
+    # range in its name), and someone is seeding it. A partial batch loses to
+    # single episodes. Batches come sorted best first.
+    for b in batches:
+        if b["coverage"] == "partial" or b["seeders"] == 0 or b["link"] in dl_urls:
             continue
         if add_torrent(b["link"]):
             data["downloaded"].append({"url": b["link"], "title": b["title"], "date": str(datetime.now())})
             entry.setdefault("episodes_grabbed", [])
             entry["episodes_grabbed"].append({"ep": "batch", "title": b["title"], "date": str(datetime.now())})
+            log.info(f"  → batch ({b['coverage']}, {b['seeders']} seeders): {b['title'][:80]}")
             queued += 1
             used_batch = True
-            break
+        break
 
     start_ep = entry.get("start_episode")
     if not used_batch:
         for r in episodes:
-            ep = extract_episode_number(r["title"])
-            s  = extract_season(r["title"]) or season
-
-            if start_ep and (ep is None or ep < start_ep):
-                log.info(f"  → skipping ep {ep} (below/missing start_episode={start_ep})")
+            ep = r["ep_num"]
+            if start_ep and ep < start_ep:
                 continue
-
-            log.info(f"Full season candidate: ep={ep} s={s} title={r['title'][:60]}")
-
-            if r["link"] in data["downloaded"]:
-                log.info("  → skipping (already in downloaded list)")
+            if r["link"] in dl_urls or r["seeders"] == 0:
                 continue
-
-            if episode_exists_on_disk(title, s, ep):
-                log.info("  → skipping (already on disk)")
+            if episode_exists_on_disk(title, season, ep):
+                log.info(f"  → ep {ep} already on disk")
                 data["downloaded"].append(r["link"])
                 continue
-
-            ok = add_torrent(r["link"])
-            log.info(f"  → add_torrent result: {ok}")
-            if ok:
-                data["downloaded"].append(r["link"])
+            if add_torrent(r["link"]):
+                data["downloaded"].append({"url": r["link"], "title": r["title"], "date": str(datetime.now())})
                 entry.setdefault("episodes_grabbed", [])
-                entry["episodes_grabbed"].append({
-                    "ep": ep, "title": r["title"], "date": str(datetime.now()),
-                })
+                entry["episodes_grabbed"].append({"ep": ep, "title": r["title"], "date": str(datetime.now())})
+                log.info(f"  → ep {ep} [{r['group'] or 'no group'}]: {r['title'][:80]}")
                 queued += 1
 
+    if not queued:
+        push_notification(data, f"No live release found for {title} Season {season} — "
+                                f"try 🎯 manual pick, or another search title", "warn")
     check_completion(entry, data)
     save_data(data)
     return {"ok": True, "queued": queued, "used_batch": used_batch, "title": title, "season": season}

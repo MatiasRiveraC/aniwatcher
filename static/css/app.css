@@ -79,6 +79,7 @@ header {
 .notif-item:last-child { border-bottom: none; }
 .notif-item.success { border-left: 3px solid var(--green); }
 .notif-item.info    { border-left: 3px solid var(--blue); }
+.notif-item.warn    { border-left: 3px solid var(--yellow); }
 .notif-time { font-size: .75rem; color: var(--muted); margin-top: .2rem; }
 .notif-empty { padding: 1.5rem; text-align: center; color: var(--muted); font-size: .85rem; }
 
@@ -300,6 +301,11 @@ main { max-width: 1100px; margin: 0 auto; padding: 2rem; }
 .pick-item-meta { display: flex; gap: .75rem; margin-top: .2rem; font-size: .75rem; color: var(--muted); font-family: 'Rajdhani', sans-serif; }
 .pick-item-size  { color: var(--yellow); }
 .pick-item-seeds { color: var(--green); }
+.pick-item-seeds.dead { color: var(--muted); }
+.pick-item-kind  { color: var(--blue); font-weight: 700; }
+.pick-item-cov.complete { color: var(--green); }
+.pick-item-cov.partial  { color: var(--yellow); }
+.pick-section { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: .6rem 0 .3rem; }
 .pick-btn { background: linear-gradient(135deg,var(--accent),var(--accent2)); border: none; color: #fff; padding: .4rem .9rem; border-radius: 6px; cursor: pointer; font-family: 'Rajdhani', sans-serif; font-size: .85rem; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
 .pick-btn:hover { opacity: .85; }
 .btn-icon.manual-on { color: var(--yellow); border-color: var(--yellow); }

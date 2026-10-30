@@ -36,7 +36,7 @@ def delete_downloaded():
 @bp.route("/api/search")
 def api_search():
     q = request.args.get("q", "")
-    return jsonify(search_nyaa(q)[:10] if q else [])
+    return jsonify(search_nyaa(q, by_seeders=True)[:10] if q else [])
 
 
 @bp.route("/api/poll", methods=["POST"])

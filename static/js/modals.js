@@ -20,16 +20,27 @@ async function fullSeason(id) {
   const res = await api.watchlist.fullSeason(id);
   if (res.manual) {
     _pickEntryId = id;
-    openPicker(res.candidates);
+    openPicker(res.candidates, res.total_episodes);
   } else {
     toast(res.ok ? 'Full season queued — check your torrent client' : (res.error || 'Error'), res.ok ? 'warn' : 'error');
   }
   setTimeout(() => { loadWatchlist(); loadStatus(); }, 2000);
 }
 
-function openPicker(candidates) {
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+// What a batch holds, against the season's episode count.
+function coverageHtml(r, total) {
+  if (r.coverage === 'complete') return `<span class="pick-item-cov complete">${pad2(r.range[0])}–${pad2(r.range[1])} ✓ complete</span>`;
+  if (r.coverage === 'partial')  return `<span class="pick-item-cov partial">${pad2(r.range[0])}–${pad2(r.range[1])} of ${total} ⚠ partial</span>`;
+  return '<span class="pick-item-cov">episodes not in the name</span>';
+}
+
+function openPicker(candidates, total) {
   _pickCandidates = candidates;
-  document.getElementById('pickSubtitle').textContent = `${candidates.length} results — pick one to download`;
+  const nb = candidates.filter(r => r.batch).length;
+  document.getElementById('pickSubtitle').textContent =
+    `${nb} batches · ${candidates.length - nb} single episodes${total ? ` · ${total} in the season` : ''} — pick one to download`;
   document.getElementById('pickOverlay').classList.add('open');
   const body = document.getElementById('pickBody');
   if (!candidates.length) {
@@ -37,15 +48,19 @@ function openPicker(candidates) {
     return;
   }
   body.innerHTML = candidates.map((r, i) => {
+    const section = (r.batch && i === 0) ? '<div class="pick-section">Batches</div>'
+      : (!r.batch && (i === 0 || candidates[i - 1].batch)) ? '<div class="pick-section">Single episodes</div>' : '';
+    const kind = r.batch ? coverageHtml(r, total) : `<span class="pick-item-kind">Ep ${pad2(r.ep_num)}</span>`;
     const audioLabel = r.audio_score === 3 ? '★ preferred' : r.audio_score === 0 ? '⚠ dub' : 'subbed';
     const res1080    = r.title.match(/1080p/i) ? '1080p' : r.title.match(/720p/i) ? '720p' : '';
-    return `
+    return `${section}
     <div class="pick-item" onclick="pickTorrent(${i})">
       <div class="pick-item-info">
         <div class="pick-item-title" title="${escHtml(r.title)}">${escHtml(r.title)}</div>
         <div class="pick-item-meta">
           <span class="pick-item-size">📦 ${r.size || '?'}</span>
-          <span class="pick-item-seeds">▲ ${r.seeders}</span>
+          ${kind}
+          <span class="pick-item-seeds ${r.seeders ? '' : 'dead'}">▲ ${r.seeders}</span>
           ${res1080 ? `<span>${res1080}</span>` : ''}
           <span>${audioLabel}</span>
         </div>
