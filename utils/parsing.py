@@ -74,9 +74,13 @@ _ROMAN = {2: 'ii', 3: 'iii', 4: 'iv', 5: 'v', 6: 'vi'}
 
 
 def fold_words(text: str) -> list:
-    """Lowercase ASCII words, long romaji vowels folded (Shoutai = Shotai)."""
+    """Lowercase ASCII words, long romaji vowels folded (Shoutai = Shotai).
+    An apostrophe joins its word (Jojo's = Jojos): releases drop it, and splitting there
+    left the key word 'jojo', which never matches a file named 'JoJos...'. A curly ’ is
+    already removed by the ASCII step."""
     t = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode().lower()
     t = t.replace('&', ' and ')
+    t = re.sub(r"['`]", '', t)
     t = re.sub(r'ou|oo', 'o', t)
     t = re.sub(r'uu', 'u', t)
     return [w for w in re.split(r'[^a-z0-9]+', t) if w]
