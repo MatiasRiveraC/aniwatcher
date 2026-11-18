@@ -31,8 +31,11 @@ def create_app() -> Flask:
 
     from services.poller import poll_loop
     from services.renamer import watch_completed_folder
+    from services.qbittorrent import import_loop
     threading.Thread(target=poll_loop,              daemon=True).start()
     threading.Thread(target=watch_completed_folder, daemon=True).start()
+    # Idles unless torrent_client is qbittorrent, so switching in the UI works.
+    threading.Thread(target=import_loop,            daemon=True).start()
 
     return app
 

@@ -8,10 +8,11 @@ from flask import Blueprint, request, jsonify, current_app
 
 from data import load_data, save_data, get_settings
 from services.mal import fetch_mal_info
-from services.nyaa import search_nyaa_full, release_sort_key
+from services.nyaa import search_entry
 from services.metadata import inspect_series, strip_mkv_title
-from services.deluge import add_torrent_to_deluge, episode_exists_on_disk
-from services.poller import do_full_season, preview_poll, search_titles, clean_search_titles
+from services.library import episode_exists_on_disk
+from services.torrents import add_torrent, client_name
+from services.poller import do_full_season, preview_poll, clean_search_titles
 from utils.parsing import extract_episode_number
 
 bp = Blueprint("watchlist", __name__)
@@ -65,6 +66,7 @@ def add_anime():
         entry["anilist_parts"]  = info.get("parts", [])
         entry["title_romaji"]   = info.get("title_romaji", "")
         entry["title_english"]  = info.get("title_english", "")
+        entry["title_synonyms"] = info.get("title_synonyms", [])
 
     data["watchlist"].append(entry)
     save_data(data)
@@ -115,16 +117,12 @@ def full_season(entry_id):
     entry = next((e for e in data["watchlist"] if e["id"] == entry_id), None)
     if not entry:
         return jsonify({"error": "not found"}), 404
-    if entry.get("manual_pick"):
-        season = entry.get("season", 1)
-        # Offer the best releases across every search, each torrent once
-        found  = {}
-        for search in search_titles(entry):
-            batches, episodes = search_nyaa_full(search, season)
-            for r in batches + episodes:
-                found.setdefault(r["link"], r)
-        candidates = sorted(found.values(), key=release_sort_key, reverse=True)[:10]
-        return jsonify({"ok": True, "manual": True, "candidates": candidates})
+    # A finished show is a one-off, often many GB: always let the user choose.
+    if entry.get("manual_pick") or entry.get("mode") == "complete":
+        # Batches that cover the season first, then single episodes in order.
+        batches, episodes = search_entry(entry)
+        return jsonify({"ok": True, "manual": True, "candidates": batches[:15] + episodes,
+                        "total_episodes": entry.get("total_episodes")})
     threading.Thread(target=lambda: do_full_season(entry_id), daemon=True).start()
     return jsonify({"ok": True, "message": "Full season search started"})
 
@@ -139,7 +137,7 @@ def manual_download(entry_id):
     entry = next((e for e in data["watchlist"] if e["id"] == entry_id), None)
     if not entry:
         return jsonify({"error": "not found"}), 404
-    ok = add_torrent_to_deluge(url)
+    ok = add_torrent(url)
     if ok:
         ep    = extract_episode_number(body.get("title", ""))
         title = body.get("title", url)
@@ -149,7 +147,7 @@ def manual_download(entry_id):
         })
         save_data(data)
         return jsonify({"ok": True})
-    return jsonify({"error": "Deluge error"}), 500
+    return jsonify({"error": f"{client_name()} error"}), 500
 
 
 @bp.route("/api/watchlist/<int:entry_id>/toggle-manual", methods=["POST"])

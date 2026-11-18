@@ -68,6 +68,9 @@ def fetch_mal_info(title: str, season: int) -> dict:
         overall_stat = detail.get("status") or ""
         eng_title    = (detail.get("alternative_titles") or {}).get("en") or ""
         rom_title    = detail.get("title") or ""
+        # Other names it is released under; Latin-script ones only, nyaa titles are.
+        synonyms     = [s for s in (detail.get("alternative_titles") or {}).get("synonyms", [])
+                        if s and s.isascii()]
         display      = eng_title or rom_title or title
 
         status_map = {"finished_airing": "FINISHED", "currently_airing": "RELEASING", "not_yet_aired": "NOT_YET_RELEASED"}
@@ -81,6 +84,7 @@ def fetch_mal_info(title: str, season: int) -> dict:
             "title":          display,
             "title_romaji":   rom_title,
             "title_english":  eng_title,
+            "title_synonyms": synonyms,
             "parts":          parts,
         }
     except Exception as e:
@@ -101,4 +105,5 @@ def refresh_mal(entry: dict) -> bool:
     entry["anilist_parts"]  = info.get("parts", [])
     entry["title_romaji"]   = info.get("title_romaji", "")
     entry["title_english"]  = info.get("title_english", "")
+    entry["title_synonyms"] = info.get("title_synonyms", [])
     return changed
